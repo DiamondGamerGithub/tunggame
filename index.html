@@ -10,6 +10,11 @@
     <!-- Three.js for immersive 3D rendering -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     
+    <!-- Firebase Compat SDKs for real-time global leaderboard sync -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+    
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body, html {
@@ -56,7 +61,7 @@
             box-shadow: inset 0 0 8px rgba(124,58,237,0.3);
         }
         .stat-pill .lbl { font-size: 9px; color: #a78bfa; text-transform: uppercase; letter-spacing: 1px; }
-        .stat-pill .val { font-size: 20px; color: #e9d5ff; font-weight: 700; line-height: 1.1; }
+        .stat-pill .val { font-size: 18px; color: #e9d5ff; font-weight: 700; line-height: 1.1; }
         .stat-pill .val.green { color: #4ade80; }
         .stat-pill .val.cyan { color: #67e8f9; }
         .stat-pill .val.yellow { color: #fde68a; }
@@ -122,15 +127,15 @@
         #menu-overlay {
             background: #08050d;
             z-index: 20;
+            overflow-y: auto;
+            padding: 20px;
         }
 
         /* Glassmorphic boxes */
         .glass-box {
             background: rgba(22, 13, 38, 0.96); border: 3px solid #7c3aed; border-radius: 20px;
-            padding: 24px 32px; text-align: center; max-width: 580px; width: 95%;
+            padding: 24px 32px; text-align: center;
             box-shadow: 0 0 50px rgba(124, 58, 237, 0.4);
-            max-height: 95vh;
-            overflow-y: auto;
         }
 
         .pl-btn {
@@ -154,7 +159,7 @@
         .menu-section h3 { font-size: 10px; color: #c084fc; letter-spacing: 2.5px; margin-bottom: 6px; text-align: center; text-transform: uppercase; }
         
         #score-list { list-style: none; }
-        #score-list li { display: flex; justify-content: space-between; font-size: 13px; color: #a78bfa; padding: 3px 0; border-bottom: 1px dashed rgba(124,58,237,0.2); }
+        #score-list li { display: flex; justify-content: space-between; font-size: 13px; color: #a78bfa; padding: 4px 0; border-bottom: 1px dashed rgba(124,58,237,0.2); }
         #score-list li .t { color: #e9d5ff; font-weight: 700; }
 
         .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -249,6 +254,29 @@
 
 <div id="gc" style="position:absolute; inset:0; cursor:crosshair; z-index:0; display:block;"></div>
 
+<!-- Mobile Controls Interface Overlay (Shown only if touch/mobile detected) -->
+<div id="mobile-controls" class="absolute inset-0 pointer-events-none z-20 hidden">
+    <!-- Joystick area (left bottom) -->
+    <div id="joystick-zone" class="absolute bottom-10 left-10 w-32 h-32 bg-purple-950/40 border-2 border-purple-500/50 rounded-full flex items-center justify-center pointer-events-auto select-none touch-none backdrop-blur-[2px]">
+        <div id="joystick-knob" class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 border border-purple-300 rounded-full shadow-lg transition-transform duration-75"></div>
+    </div>
+    
+    <!-- Action Buttons grid (right bottom) -->
+    <div class="absolute bottom-10 right-10 flex flex-col gap-4 pointer-events-auto items-end">
+        <!-- Sprint Hold Button -->
+        <button id="btn-touch-sprint" class="w-20 h-10 bg-emerald-600/80 active:bg-emerald-500 border-2 border-emerald-400 rounded-full flex items-center justify-center text-white font-bold select-none touch-none shadow-lg pf text-[10px]">SPRINT ⚡</button>
+        <div class="flex gap-4 items-center">
+            <!-- Crouch Button -->
+            <button id="btn-touch-crouch" class="w-16 h-16 bg-amber-600/80 active:bg-amber-500 border-2 border-amber-400 rounded-full flex items-center justify-center text-white font-bold select-none touch-none shadow-lg pf text-[9px]">CROUCH 🧘</button>
+            <!-- Attack / Swing Button -->
+            <button id="btn-touch-swing" class="w-24 h-24 bg-gradient-to-tr from-purple-600 to-pink-600 active:from-purple-500 active:to-pink-500 border-2 border-purple-400 rounded-full flex flex-col items-center justify-center text-white font-bold select-none touch-none shadow-xl transform scale-105 pf text-[11px]">
+                <span class="text-xl">🏏</span>
+                <span>SWING</span>
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Game Overlays and HUD interface -->
 <div id="hud">
     <div id="hud-brand">
@@ -269,6 +297,7 @@
         </div>
     </div>
     <div id="hud-stats">
+        <div class="stat-pill"><div class="lbl">WEAPON</div><div class="val text-purple-400" id="hud-weapon" style="font-size: 13px; font-weight: bold; margin-top: 4px;">🏏 BAT</div></div>
         <div class="stat-pill"><div class="lbl">LEVEL</div><div class="val yellow" id="hud-lv">1</div></div>
         <div class="stat-pill"><div class="lbl">CAUGHT</div><div class="val green" id="hud-caught">0/1</div></div>
         <div class="stat-pill"><div class="lbl">TIME</div><div class="val cyan" id="hud-time">0.0s</div></div>
@@ -326,8 +355,8 @@
 <div id="confirm-modal" class="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md z-50 hidden">
     <div class="glass-box max-w-sm">
         <h2 class="pf text-red-500 mb-2">⚠️ RESET LEADERBOARD</h2>
-        <p class="text-sm text-purple-200 mb-4">Are you absolutely sure you want to wipe the persistent records? This cannot be undone!</p>
-        <button id="btn-confirm-yes" class="pl-btn pf bg-red-600 hover:bg-red-700 text-white mb-2">YES, RESET RECORDS</button>
+        <p class="text-sm text-purple-200 mb-4">Are you absolutely sure you want to wipe local records? (Global Cloud entries cannot be deleted locally!)</p>
+        <button id="btn-confirm-yes" class="pl-btn pf bg-red-600 hover:bg-red-700 text-white mb-2">YES, RESET LOCAL</button>
         <button id="btn-confirm-no" class="pl-btn pf bg-purple-900/50 hover:bg-purple-900 text-purple-200">CANCEL</button>
     </div>
 </div>
@@ -385,164 +414,173 @@
     </div>
 </div>
 
-<!-- Dedicated Admin / Developer Command Modal Panel -->
-<div id="admin-modal" class="fixed inset-0 flex items-center justify-center bg-black/85 backdrop-blur-md z-50 hidden">
-    <div class="glass-box max-w-3xl w-11/12 md:p-8">
-        <h2 class="pf text-yellow-500 mb-2 text-xl md:text-2xl">🧙 DEV COMMAND CENTER</h2>
-        <p class="text-xs text-purple-300 mb-4">Execute administrative cheats or reference direct key override protocols</p>
+<!-- ================================================================
+     THREE SEPARATE ADMIN MODALS (TRIGGERED BY CTRL+Z, CTRL+X, CTRL+M)
+     ================================================================ -->
 
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 text-left">
-            <!-- Left Column: Command Activators Grid -->
-            <div class="md:col-span-7 flex flex-col">
-                <h3 class="pf text-purple-300 text-[10px] mb-2 border-b border-purple-900 pb-1">⚡ INSTANT CHEAT TRIGGERS</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-96 overflow-y-auto pr-1">
-                    <div class="p-2 border border-purple-900 bg-purple-950/20 rounded-lg">
-                        <span class="text-xs text-purple-200 font-bold block mb-1">🎯 TELEPORT CHEAT</span>
-                        <p class="text-[11px] text-purple-400 mb-2">Instantly warp 2 feet ahead along looking vector coordinates.</p>
-                        <button onclick="triggerAdminCommand('tp_forward')" class="pl-btn pf text-[10px] py-2 bg-purple-800 text-white mb-0">Warp Ahead</button>
-                    </div>
-                    <div class="p-2 border border-purple-900 bg-purple-950/20 rounded-lg">
-                        <span class="text-xs text-purple-200 font-bold block mb-1">🧙 TARGET CAPTURE</span>
-                        <p class="text-[11px] text-purple-400 mb-2">Teleport directly behind next target creature and capture it.</p>
-                        <button onclick="triggerAdminCommand('tp_capture')" class="pl-btn pf text-[10px] py-2 bg-purple-800 text-white mb-0">Capture Nearest</button>
-                    </div>
-                    <div class="p-2 border border-purple-900 bg-purple-950/20 rounded-lg">
-                        <span class="text-xs text-purple-200 font-bold block mb-1">⚔️ MASS NUKE</span>
-                        <p class="text-[11px] text-purple-400 mb-2">Synthesize dynamic catch spikes around every existing monster.</p>
-                        <button onclick="triggerAdminCommand('nuke_all')" class="pl-btn pf text-[10px] py-2 bg-red-800 text-white mb-0">Nuke Field</button>
-                    </div>
-                    <div class="p-2 border border-purple-900 bg-purple-950/20 rounded-lg">
-                        <span class="text-xs text-purple-200 font-bold block mb-1">⚡ SKIP TIERS</span>
-                        <p class="text-[11px] text-purple-400 mb-2">Instantly bypass current level challenges and advance.</p>
-                        <button onclick="triggerAdminCommand('skip_level')" class="pl-btn pf text-[10px] py-2 bg-yellow-800 text-white mb-0">Skip Level</button>
-                    </div>
-                    <div class="p-2 border border-purple-900 bg-purple-950/20 rounded-lg">
-                        <span class="text-xs text-purple-200 font-bold block mb-1">🌌 LASER BLASTER</span>
-                        <p class="text-[11px] text-purple-400 mb-2">Equip futuristic ranged quantum blaster weapon immediately.</p>
-                        <button id="btn-admin-laser" onclick="triggerAdminCommand('toggle_laser')" class="pl-btn pf text-[10px] py-2 bg-blue-800 text-white mb-0">Equip Laser</button>
-                    </div>
-                    <div class="p-2 border border-purple-900 bg-purple-950/20 rounded-lg">
-                        <span class="text-xs text-purple-200 font-bold block mb-1">🏃 INFINITE SPEED</span>
-                        <p class="text-[11px] text-purple-400 mb-2">Multiply player stride velocity dynamics permanently.</p>
-                        <button id="btn-admin-speed" onclick="triggerAdminCommand('toggle_speed')" class="pl-btn pf text-[10px] py-2 bg-emerald-800 text-white mb-0">Activate Speed</button>
-                    </div>
-                    <div class="p-2 border border-purple-900 bg-purple-950/20 rounded-lg">
-                        <span class="text-xs text-purple-200 font-bold block mb-1"><span>🔥 INDUCE HOSTILITY</span>
-                        <p class="text-[11px] text-purple-400 mb-2">Instantly trigger angry pursuit protocols for all monsters.</p>
-                        <button onclick="triggerAdminCommand('trigger_angry')" class="pl-btn pf text-[10px] py-2 bg-orange-800 text-white mb-0">Make Hostile</button>
-                    </div>
-                    <div class="p-2 border border-purple-900 bg-purple-950/20 rounded-lg">
-                        <span class="text-xs text-purple-200 font-bold block mb-1">🌋 SPAWN TRAP</span>
-                        <p class="text-[11px] text-purple-400 mb-2">Spawn active volcanic trap floor segment right in front of you.</p>
-                        <button onclick="triggerAdminCommand('spawn_trap')" class="pl-btn pf text-[10px] py-2 bg-cyan-800 text-white mb-0">Summon Trap</button>
-                    </div>
-                </div>
+<!-- ADMIN PANEL Z: Movement & Navigation Tricks -->
+<div id="admin-panel-z" class="fixed inset-0 flex items-center justify-center bg-black/85 backdrop-blur-md z-50 hidden">
+    <div class="glass-box max-w-md border-2 border-purple-500">
+        <h2 class="pf text-yellow-500 text-lg mb-2">🧙 MOVEMENT UTILITIES (CTRL+Z)</h2>
+        <p class="text-xs text-purple-300 mb-4">Diagnostic triggers relating to speed and spatial translation</p>
+        
+        <div class="flex flex-col gap-3 text-left">
+            <div class="p-3 border border-purple-900 bg-purple-950/20 rounded-lg">
+                <span class="text-xs text-purple-200 font-bold block mb-1">🎯 WARP FORWARD</span>
+                <p class="text-[11px] text-purple-400 mb-2">Instantly translate player coordinates 3.5 feet along look vector.</p>
+                <button onclick="triggerAdminCommand('tp_forward')" class="pl-btn pf text-[10px] py-2 bg-purple-800 text-white mb-0">Warp Ahead</button>
             </div>
-
-            <!-- Right Column: Control Map & Dev Guide Section -->
-            <div class="md:col-span-5 flex flex-col border-t md:border-t-0 md:border-l border-purple-900/60 pt-4 md:pt-0 md:pl-4">
-                <h3 class="pf text-yellow-500 text-[10px] mb-2 border-b border-purple-900 pb-1">🎹 SECRET KEY MATRIX</h3>
-                <p class="text-[11px] text-purple-300 mb-3 leading-relaxed">These developer hotkeys are actively bound to the runtime engine and can be used on-the-fly during a run:</p>
-                
-                <div class="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
-                    <div class="flex justify-between items-center bg-purple-950/30 p-1.5 border border-purple-900/40 rounded text-xs">
-                        <span class="text-purple-200">Teleport Forward</span>
-                        <span class="pf text-[9px] bg-purple-900 px-1.5 py-0.5 rounded text-yellow-400">Ctrl + X</span>
-                    </div>
-                    <div class="flex justify-between items-center bg-purple-950/30 p-1.5 border border-purple-900/40 rounded text-xs">
-                        <span class="text-purple-200">Warp & Catch Nearest</span>
-                        <span class="pf text-[9px] bg-purple-900 px-1.5 py-0.5 rounded text-yellow-400">Ctrl + Z</span>
-                    </div>
-                    <div class="flex justify-between items-center bg-purple-950/30 p-1.5 border border-purple-900/40 rounded text-xs">
-                        <span class="text-purple-200">Summon Floor Trap</span>
-                        <span class="pf text-[9px] bg-purple-900 px-1.5 py-0.5 rounded text-yellow-400">Ctrl + B</span>
-                    </div>
-                    <div class="flex justify-between items-center bg-purple-950/30 p-1.5 border border-purple-900/40 rounded text-xs">
-                        <span class="text-purple-200">Force Angry Monsters</span>
-                        <span class="pf text-[9px] bg-purple-900 px-1.5 py-0.5 rounded text-yellow-400">Ctrl + H</span>
-                    </div>
-                    <div class="flex justify-between items-center bg-purple-950/30 p-1.5 border border-purple-900/40 rounded text-xs">
-                        <span class="text-purple-200">Toggle Quantum Laser</span>
-                        <span class="pf text-[9px] bg-purple-900 px-1.5 py-0.5 rounded text-yellow-400">Ctrl + I</span>
-                    </div>
-                    <div class="flex justify-between items-center bg-purple-950/30 p-1.5 border border-purple-900/40 rounded text-xs">
-                        <span class="text-purple-200">Field Tactical Nuke</span>
-                        <span class="pf text-[9px] bg-purple-900 px-1.5 py-0.5 rounded text-yellow-400">Ctrl + K</span>
-                    </div>
-                    <div class="flex justify-between items-center bg-purple-950/30 p-1.5 border border-purple-900/40 rounded text-xs">
-                        <span class="text-purple-200">Skip Active Level</span>
-                        <span class="pf text-[9px] bg-purple-900 px-1.5 py-0.5 rounded text-yellow-400">Ctrl + L</span>
-                    </div>
-                    <div class="flex justify-between items-center bg-purple-950/30 p-1.5 border border-purple-900/40 rounded text-xs">
-                        <span class="text-purple-200">Infinite Speed Hack</span>
-                        <span class="pf text-[9px] bg-purple-900 px-1.5 py-0.5 rounded text-yellow-400">Ctrl + G</span>
-                    </div>
-                </div>
+            <div class="p-3 border border-purple-900 bg-purple-950/20 rounded-lg">
+                <span class="text-xs text-purple-200 font-bold block mb-1">⚡ warp & catch nearest</span>
+                <p class="text-[11px] text-purple-400 mb-2">Teleport directly behind next target creature and capture it.</p>
+                <button onclick="triggerAdminCommand('tp_capture')" class="pl-btn pf text-[10px] py-2 bg-purple-800 text-white mb-0">Capture Nearest</button>
+            </div>
+            <div class="p-3 border border-purple-900 bg-purple-950/20 rounded-lg">
+                <span class="text-xs text-purple-200 font-bold block mb-1">🏃 INFINITE SPEED</span>
+                <p class="text-[11px] text-purple-400 mb-2">Bypass normal velocity limitations and stamina checkpoints.</p>
+                <button id="btn-admin-speed" onclick="triggerAdminCommand('toggle_speed')" class="pl-btn pf text-[10px] py-2 bg-emerald-800 text-white mb-0">Activate Speed</button>
             </div>
         </div>
-
-        <button id="btn-admin-close" class="pl-btn pf bg-purple-900/50 hover:bg-purple-900 text-purple-200 mt-6 mb-0">CLOSE DEVELOPER PANEL</button>
+        <button onclick="closeAdminPanel('z')" class="pl-btn pf bg-purple-900/50 hover:bg-purple-900 text-purple-200 mt-4 mb-0">CLOSE UTILITIES</button>
     </div>
 </div>
 
-<!-- Main Game Menu Overlay with Configuration Controls -->
-<div id="menu-overlay">
-    <div id="menu-box" class="glass-box">
-        <h2 class="pf">TUNG TUNG SAHOOR</h2>
-        <p class="tagline">The Ultimate Italian Brainrot Maze Chase Adventure!</p>
-
-        <!-- Dynamic High Scores Leaderboard Panel -->
-        <div class="menu-section">
-            <div class="flex justify-between items-center mb-2 px-1">
-                <h3 class="pf" style="margin-bottom: 0;">🏆 PERSISTENT RUN LEADERBOARD</h3>
-                <button id="btn-clear-scores" class="text-xs text-red-400 hover:text-red-300 transition-colors uppercase font-bold">[Reset]</button>
+<!-- ADMIN PANEL X: World & Scenario Controls -->
+<div id="admin-panel-x" class="fixed inset-0 flex items-center justify-center bg-black/85 backdrop-blur-md z-50 hidden">
+    <div class="glass-box max-w-md border-2 border-purple-500">
+        <h2 class="pf text-yellow-500 text-lg mb-2">🧙 WORLD CHANGER (CTRL+X)</h2>
+        <p class="text-xs text-purple-300 mb-4">Diagnostic triggers relating to level layouts and AI properties</p>
+        
+        <div class="flex flex-col gap-3 text-left">
+            <div class="p-3 border border-purple-900 bg-purple-950/20 rounded-lg">
+                <span class="text-xs text-purple-200 font-bold block mb-1">🔥 INDUCE HOSTILITY</span>
+                <p class="text-[11px] text-purple-400 mb-2">Instantly force aggressive chase logic for all uncaptured monsters.</p>
+                <button onclick="triggerAdminCommand('trigger_angry')" class="pl-btn pf text-[10px] py-2 bg-orange-800 text-white mb-0">Induce Rage Mode</button>
             </div>
-            <ol id="score-list"></ol>
-        </div>
-
-        <!-- Steam Style Achievements Section with Progress Bar -->
-        <div class="menu-section">
-            <div class="flex justify-between items-center mb-1">
-                <h3 class="pf" style="margin-bottom: 0;">🏅 STEAM ACHIEVEMENTS</h3>
-                <span id="ach-progress-text" class="text-xs text-purple-300 font-bold">0 / 8 Unlocked</span>
+            <div class="p-3 border border-purple-900 bg-purple-950/20 rounded-lg">
+                <span class="text-xs text-purple-200 font-bold block mb-1">🌋 SUMMON FLOOR TRAP</span>
+                <p class="text-[11px] text-purple-400 mb-2">Summon an active banishment trap directly in front of you.</p>
+                <button onclick="triggerAdminCommand('spawn_trap')" class="pl-btn pf text-[10px] py-2 bg-cyan-800 text-white mb-0">Spawn Trap</button>
             </div>
-            <div class="w-full bg-purple-950 rounded-full h-2 mb-3 border border-purple-800 overflow-hidden">
-                <div id="ach-progress-bar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-500" style="width: 0%;"></div>
-            </div>
-            <div class="ach-menu-grid" id="ach-menu-list"></div>
-        </div>
-
-        <!-- Characters Showcases -->
-        <div class="menu-section">
-            <h3 class="pf">🎭 TARGET CREATURES</h3>
-            <div class="char-grid">
-                <div class="char-card"><span class="ico">🦈</span>Tralelalo</div>
-                <div class="char-card"><span class="ico">🐊</span>Bombardino</div>
-                <div class="char-card"><span class="ico">🌈</span>Trippi Troppi</div>
-                <div class="char-card"><span class="ico">🦉</span>Brr Brr</div>
-                <div class="char-card"><span class="ico">👑</span>Il Re</div>
+            <div class="p-3 border border-purple-900 bg-purple-950/20 rounded-lg">
+                <span class="text-xs text-purple-200 font-bold block mb-1">⚡ SKIP TIER TIERS</span>
+                <p class="text-[11px] text-purple-400 mb-2">Skip current level challenges entirely and proceed to next.</p>
+                <button onclick="triggerAdminCommand('skip_level')" class="pl-btn pf text-[10px] py-2 bg-yellow-800 text-white mb-0">Skip Level</button>
             </div>
         </div>
+        <button onclick="closeAdminPanel('x')" class="pl-btn pf bg-purple-900/50 hover:bg-purple-900 text-purple-200 mt-4 mb-0">CLOSE WORLD PANEL</button>
+    </div>
+</div>
 
-        <!-- Comprehensive controls sheet -->
-        <div class="menu-section">
-            <h3 class="pf">🎮 IN-GAME CONTROLS</h3>
-            <div class="controls-grid">
-                <div class="ctrl"><span>WASD / Arrows</span> — Move around</div>
-                <div class="ctrl"><span>Shift</span> — Sprint (Stamina bar)</div>
-                <div class="ctrl"><span>C</span> — Crouch (Enter vents & hide)</div>
-                <div class="ctrl"><span>Click / Drag</span> — Swing Bat / Look</div>
-                <div class="ctrl"><span>Spacebar</span> — Action / Swing / Shoot</div>
-                <div class="ctrl"><span>Touch / Swipe</span> — Look (On Mobile/Tablet)</div>
+<!-- ADMIN PANEL M: Combat & Destruction Equipment -->
+<div id="admin-panel-m" class="fixed inset-0 flex items-center justify-center bg-black/85 backdrop-blur-md z-50 hidden">
+    <div class="glass-box max-w-md border-2 border-purple-500">
+        <h2 class="pf text-yellow-500 text-lg mb-2">🧙 ARSENAL & DESTRUCTION (CTRL+M)</h2>
+        <p class="text-xs text-purple-300 mb-4">Diagnostic triggers relating to active weapons and field clears</p>
+        
+        <div class="flex flex-col gap-3 text-left">
+            <div class="p-3 border border-purple-900 bg-purple-950/20 rounded-lg">
+                <span class="text-xs text-purple-200 font-bold block mb-1">⚔️ TACTICAL FIELD NUKE</span>
+                <p class="text-[11px] text-purple-400 mb-2">Nuke the level, capturing all active creatures simultaneously.</p>
+                <button onclick="triggerAdminCommand('nuke_all')" class="pl-btn pf text-[10px] py-2 bg-red-800 text-white mb-0">Nuke All Targets</button>
+            </div>
+            <div class="p-3 border border-purple-900 bg-purple-950/20 rounded-lg">
+                <span class="text-xs text-purple-200 font-bold block mb-1">🧬 QUANTUM LASER BLASTER</span>
+                <p class="text-[11px] text-purple-400 mb-2">Instantly equip the futuristic laser weapon with infinite range.</p>
+                <button id="btn-admin-laser" onclick="triggerAdminCommand('toggle_laser')" class="pl-btn pf text-[10px] py-2 bg-blue-800 text-white mb-0">Toggle Laser Blaster</button>
+            </div>
+        </div>
+        <button onclick="closeAdminPanel('m')" class="pl-btn pf bg-purple-900/50 hover:bg-purple-900 text-purple-200 mt-4 mb-0">CLOSE WEAPONS PANEL</button>
+    </div>
+</div>
+
+<!-- In-Game Beautiful Name Prompt Modal -->
+<div id="name-prompt-modal" class="fixed inset-0 flex items-center justify-center bg-black/85 backdrop-blur-md z-50 hidden">
+    <div class="glass-box max-w-sm border-2 border-purple-500">
+        <h2 class="pf text-purple-300 text-lg mb-2">🏆 RECORD CAPTURED!</h2>
+        <p class="text-sm text-purple-200 mb-4 font-bold">You completed the entire hunt in <span id="prompt-time-val" class="text-cyan-400">0.0</span>s!</p>
+        <div class="mb-4 text-left">
+            <label class="text-[10px] text-purple-400 tracking-wider block mb-1 uppercase font-bold pf">Enter Hunter Name Tag</label>
+            <input type="text" id="username-input" class="w-full bg-purple-950/60 border-2 border-purple-500 rounded-lg p-3 text-center text-white text-lg font-bold tracking-wider placeholder-purple-700/60 focus:outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400" placeholder="TAG" maxlength="12" autocomplete="off">
+        </div>
+        <button id="btn-submit-score" class="pl-btn pf bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:brightness-110 shadow-lg">SUBMIT RECORD</button>
+    </div>
+</div>
+
+<!-- Main Game Menu Overlay with Side-by-Side Dual panel Layout -->
+<div id="menu-overlay" class="flex flex-col items-center justify-start min-h-screen">
+    <div class="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-12 gap-6 my-auto pt-6 pb-12">
+        
+        <!-- Left Side: Main Core Menu Panels -->
+        <div id="menu-box" class="glass-box lg:col-span-8 flex flex-col justify-between">
+            <div>
+                <h2 class="pf">TUNG TUNG SAHOOR</h2>
+                <p class="tagline">The Ultimate Italian Brainrot Maze Chase Adventure!</p>
+
+                <!-- Steam Style Achievements Section with Progress Bar -->
+                <div class="menu-section">
+                    <div class="flex justify-between items-center mb-1">
+                        <h3 class="pf" style="margin-bottom: 0;">🏅 STEAM ACHIEVEMENTS</h3>
+                        <span id="ach-progress-text" class="text-xs text-purple-300 font-bold">0 / 8 Unlocked</span>
+                    </div>
+                    <div class="w-full bg-purple-950 rounded-full h-2 mb-3 border border-purple-800 overflow-hidden">
+                        <div id="ach-progress-bar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-500" style="width: 0%;"></div>
+                    </div>
+                    <div class="ach-menu-grid" id="ach-menu-list"></div>
+                </div>
+
+                <!-- Characters Showcases -->
+                <div class="menu-section">
+                    <h3 class="pf">🎭 TARGET CREATURES</h3>
+                    <div class="char-grid">
+                        <div class="char-card"><span class="ico">🦈</span>Tralelalo</div>
+                        <div class="char-card"><span class="ico">🐊</span>Bombardino</div>
+                        <div class="char-card"><span class="ico">🌈</span>Trippi Troppi</div>
+                        <div class="char-card"><span class="ico">🦉</span>Brr Brr</div>
+                        <div class="char-card"><span class="ico">👑</span>Il Re</div>
+                    </div>
+                </div>
+
+                <!-- Comprehensive controls sheet (WITHOUT raw cheat listing to clean up HUD) -->
+                <div class="menu-section">
+                    <h3 class="pf">🎮 IN-GAME CONTROLS</h3>
+                    <div class="controls-grid">
+                        <div class="ctrl"><span>WASD / Arrows</span> — Move around</div>
+                        <div class="ctrl"><span>Shift</span> — Sprint (Stamina bar)</div>
+                        <div class="ctrl"><span>C</span> — Crouch (Enter vents & hide)</div>
+                        <div class="ctrl"><span>Click / Drag</span> — Swing Bat / Look</div>
+                        <div class="ctrl"><span>Alt</span> — Toggle Third-Person</div>
+                        <div class="ctrl"><span>Spacebar</span> — Action / Swing / Shoot</div>
+                        <div class="ctrl"><span>Touch / Swipe</span> — Look (On Mobile/Tablet)</div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <button id="btn-play" class="pf">▶ INITIATE SAHUR HUNT</button>
+                <div class="menu-row">
+                    <button id="btn-opt" class="sub-btn text-xs">⚙️ Optimization: OFF</button>
+                    <button id="btn-open-settings" class="sub-btn text-xs">🛠️ Settings</button>
+                </div>
             </div>
         </div>
 
-        <button id="btn-play" class="pf">▶ INITIATE SAHUR HUNT</button>
-        <div class="menu-row">
-            <button id="btn-opt" class="sub-btn text-xs">⚙️ Optimization: OFF</button>
-            <button id="btn-open-settings" class="sub-btn text-xs">🛠️ Settings</button>
-            <button id="btn-open-admin" class="sub-btn text-xs">🧙 Dev Commands</button>
+        <!-- Sidebar lobby panels -->
+        <div id="leaderboard-box" class="glass-box lg:col-span-4 flex flex-col justify-start">
+            <div class="flex justify-between items-center mb-3 pb-1 border-b border-purple-900/60">
+                <h3 class="pf text-purple-300 text-xs" style="margin-bottom: 0;">🏆 GLOBAL LEADERBOARD</h3>
+                <button id="btn-clear-scores" class="text-[10px] text-red-400 hover:text-red-300 transition-colors uppercase font-bold">[Clear Local]</button>
+            </div>
+            
+            <p id="leaderboard-state-lbl" class="text-xs text-purple-400 italic text-center py-2">Syncing Global Data...</p>
+            <ol id="score-list" class="space-y-1 w-full max-h-[480px] overflow-y-auto pr-1"></ol>
+            
+            <div class="mt-4 pt-3 border-t border-purple-900/40 text-[11px] text-purple-400 text-center">
+                <p class="font-bold text-yellow-500 mb-1">🎮 MULTIPLAYER SYNC ACTIVE</p>
+                <p>Run records are instantly stored via Cloud Firestore DB and distributed across all player hubs!</p>
+            </div>
         </div>
+        
     </div>
 </div>
 
@@ -559,6 +597,7 @@ let floorMesh = null, ceilingMesh = null;
 let tralelas = [];
 let particles = [];
 let fpRig = null;
+let playerAvatar = null;
 let swingTime = 0;
 const raycaster = new THREE.Raycaster();
 const centerVec = new THREE.Vector2(0, 0);
@@ -567,7 +606,7 @@ const centerVec = new THREE.Vector2(0, 0);
 let isDragging = false;
 let previousMousePosition = { x: 0, y: 0 };
 let useDragLook = false;
-let touchStartPos = { x: 0, y: 0 };
+let touchStartPos = { x: 0, y: 0, id: null };
 
 // Dynamic Game Settings
 const game = {
@@ -577,25 +616,30 @@ const game = {
     stamina: 100, isCrouching: false, hasLaserGun: false,
     optimized: localStorage.getItem('sahoor_opt') === 'true',
     
+    // Fatigue recovery system parameter
+    isFatigued: false,
+    
     // Spawn Protection System to prevent spawn camping death glitches
     spawnProtected: false,
     spawnProtectionTimer: 0,
     
     // Trap challenge state parameters
     isTrapped: false, trapTimeLeft: 15.0, trapInterval: null,
-    preTrapCoords: { x: 0, z: 0 }
+    preTrapCoords: { x: 0, z: 0 },
+    
+    // Third person view state tracking
+    isThirdPerson: false,
+
+    // Store state of cursor prior to opening admin panel
+    savedPointerLockState: false
 };
 
 let player = { x: 6, z: 6, yaw: 0, pitch: 0, radius: 0.65, speed: 0.11, look: 0.0025 };
 let mazeGrid = [], mazeCols = 7, mazeRows = 7;
 const CS = 4; // Structural corridor block grid units scale
 
-// Highscore Management with localStorage persistence
-let highscores = JSON.parse(localStorage.getItem('sahoor_highscores')) || [
-    { name: 'Legendary', time: 42.5 },
-    { name: 'Elite Sahoor', time: 59.8 },
-    { name: 'Speedy G', time: 75.3 }
-];
+// Highscore Management with dynamic local storage backup registries
+let highscores = JSON.parse(localStorage.getItem('sahoor_highscores')) || [];
 
 const LEVELS = {
     1: { name: 'Tralelalo Tralala', desc: 'Blue shark in Nike sneakers — grounded and steady!', type: 'shark', color: '#29b6f6', accent: '#0288d1', bellyColor: '#e0f7fa', spark: '#18ffff', fog: '#0a1628' },
@@ -622,25 +666,116 @@ ACHIEVEMENTS.forEach(a => {
     if (savedAch[a.id]) a.unlocked = true;
 });
 
+// ================================================================
+//  FIRESTORE REAL-TIME SYNCHRONIZER PROTOCOLS
+// ================================================================
+let db = null;
+let auth = null;
+let fbUser = null;
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'tung-tung-sahoor-default-app';
+
+async function initFirebase() {
+    if (typeof __firebase_config === 'undefined' || !__firebase_config) {
+        document.getElementById('leaderboard-state-lbl').textContent = "Offline Mode (Local Storage only)";
+        renderHighscores();
+        return;
+    }
+    try {
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = firebase.initializeApp(firebaseConfig);
+        auth = firebase.auth(app);
+        db = firebase.firestore(app);
+
+        // RULE 3 - Strict Auth Priority before any queries
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            const creds = await auth.signInWithCustomToken(__initial_auth_token);
+            fbUser = creds.user;
+        } else {
+            const creds = await auth.signInAnonymously();
+            fbUser = creds.user;
+        }
+
+        // Fetch Global Leaderboard directly
+        document.getElementById('leaderboard-state-lbl').textContent = "Global Database Active";
+        fetchGlobalScores();
+    } catch (err) {
+        console.error("Firebase init failed:", err);
+        document.getElementById('leaderboard-state-lbl').textContent = "Sync Error (Using Local Storage)";
+        renderHighscores();
+    }
+}
+
+async function fetchGlobalScores() {
+    if (!db || !fbUser) return;
+    try {
+        // RULE 1: Direct secure paths for public data mapping
+        const scoresRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('leaderboard');
+        
+        // RULE 2: No complex queries! Fetch simple and sort in memory
+        scoresRef.onSnapshot(snapshot => {
+            let fetchedScores = [];
+            snapshot.forEach(doc => {
+                fetchedScores.push(doc.data());
+            });
+            
+            // Sort in memory by time (ascending is best!)
+            fetchedScores.sort((a, b) => a.time - b.time);
+            highscores = fetchedScores;
+            renderHighscores();
+        }, err => {
+            console.error("Firestore onSnapshot subscription failed:", err);
+            renderHighscores();
+        });
+    } catch (e) {
+        console.error("Failed to subscribe to leaderboard collection:", e);
+        renderHighscores();
+    }
+}
+
+async function uploadHighScore(name, time) {
+    if (db && fbUser) {
+        try {
+            // RULE 1: Direct secure paths for public data mapping
+            const scoreDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('leaderboard').doc(fbUser.uid);
+            await scoreDocRef.set({
+                name: name,
+                time: time,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            showNotif("☁️ Highscore synced to global database!");
+        } catch (err) {
+            console.error("Global score write failed:", err);
+            saveLocalScoreBackup(name, time);
+        }
+    } else {
+        saveLocalScoreBackup(name, time);
+    }
+}
+
+function saveLocalScoreBackup(name, time) {
+    highscores.push({ name: name, time: time });
+    highscores.sort((a,b) => a.time - b.time);
+    localStorage.setItem('sahoor_highscores', JSON.stringify(highscores));
+    renderHighscores();
+    showNotif("💾 Highscore saved locally!");
+}
+
 class AudioEngine {
     constructor() { 
         this.ctx = null; 
         this.masterVolumeValue = 0.8;
         this.musicVolumeValue = 0.5;
         this.sfxVolumeValue = 0.6;
-        
-        this.audioMode = 'both'; // 'both', 'music', 'sfx'
-        
+        this.audioMode = 'both'; 
         this.masterGain = null;
         this.musicGain = null;
         this.sfxGain = null;
-        
-        this.currentMusicState = 'calm'; // 'calm', 'chase', 'trapped'
+        this.currentMusicState = 'calm'; 
         this.currentTempoBPM = 100;
         this.noteIdx = 0;
         this.bgInterval = null;
         this.lastStepTime = 0;
-        this.stepDelay = 250; // Dynamic interval based on state
+        this.stepDelay = 250; 
     }
     
     init() { 
@@ -667,7 +802,6 @@ class AudioEngine {
     
     applyVolumeScales() {
         if (!this.ctx) return;
-        
         const mScale = (this.audioMode === 'both' || this.audioMode === 'music') ? 1.0 : 0.0;
         const sScale = (this.audioMode === 'both' || this.audioMode === 'sfx') ? 1.0 : 0.0;
         
@@ -694,7 +828,6 @@ class AudioEngine {
         o.stop(now + dur + 0.01);
     }
     
-    // UI Sound effects
     playClick() { this.tone(780, 'sine', 0.15, 0.08); }
     playTung() { 
         this.tone(340, 'triangle', 0.6, 0.18); 
@@ -730,7 +863,6 @@ class AudioEngine {
         this.tone(930, 'sine', 0.08, 0.4, 0.4);
     }
 
-    // Dynamic transitioning audio loops
     startBg() {
         this.stopBg();
         if (!this.ctx) return;
@@ -752,65 +884,57 @@ class AudioEngine {
     }
     
     scheduler() {
-        // Evaluate dynamic environment triggers
         let targetState = 'calm';
         if (game.isTrapped) {
             targetState = 'trapped';
         } else {
-            // Check if any visible creature is active and angry
             const angryCreatures = tralelas.some(t => !t.caught && t.isAngry);
             if (angryCreatures) targetState = 'chase';
         }
 
         if (targetState !== this.currentMusicState) {
             this.currentMusicState = targetState;
-            // Instantly update tempo & timings
             if (this.currentMusicState === 'calm') {
                 this.stepDelay = 280;
             } else if (this.currentMusicState === 'chase') {
-                this.stepDelay = 150; // Turbo aggressive pace
+                this.stepDelay = 150; 
             } else if (this.currentMusicState === 'trapped') {
-                this.stepDelay = 220; // Distress tempo
+                this.stepDelay = 220; 
             }
         }
 
-        // Procedural composition schedule based on State
         if (this.currentMusicState === 'calm') {
             const chords = [
-                [130.81, 196.00, 261.63], // C3, G3, C4
-                [146.83, 220.00, 293.66], // D3, A3, D4
-                [164.81, 246.94, 329.63]  // E3, B3, E4
+                [130.81, 196.00, 261.63], 
+                [146.83, 220.00, 293.66], 
+                [164.81, 246.94, 329.63]  
             ];
             const activeChord = chords[Math.floor(this.noteIdx / 8) % chords.length];
             const bass = activeChord[0];
             const lead = activeChord[this.noteIdx % 3] * 1.5;
             
-            // Soft atmospheric tick-tock pulse
             this.tone(bass, 'triangle', 0.08, 0.35, 0, false);
             if (this.noteIdx % 4 === 2) {
                 this.tone(lead, 'sine', 0.02, 0.25, 0, false);
             }
         } 
         else if (this.currentMusicState === 'chase') {
-            // Turbo aggro techno beat
-            const bassline = [110.00, 110.00, 165.00, 110.00, 220.00, 165.00, 110.00, 146.83]; // Aggressive minor progression
+            const bassline = [110.00, 110.00, 165.00, 110.00, 220.00, 165.00, 110.00, 146.83]; 
             const activeBass = bassline[this.noteIdx % bassline.length];
             
             this.tone(activeBass, 'sawtooth', 0.06, 0.12, 0, false);
             if (this.noteIdx % 4 === 0) {
-                this.tone(440.00, 'triangle', 0.04, 0.08, 0, false); // High stress accent
+                this.tone(440.00, 'triangle', 0.04, 0.08, 0, false); 
             }
         } 
         else if (this.currentMusicState === 'trapped') {
-            // High distress minor alarm pulse
-            const tensionNotes = [82.41, 116.54, 98.00, 110.00]; // Chronological tension
+            const tensionNotes = [82.41, 116.54, 98.00, 110.00]; 
             const activeNote = tensionNotes[this.noteIdx % tensionNotes.length];
             
             this.tone(activeNote, 'sawtooth', 0.06, 0.2, 0, false);
             this.tone(activeNote * 2, 'sine', 0.02, 0.15, 0, false);
             
             if (this.noteIdx % 8 === 4) {
-                // High pitch alert chime
                 this.tone(1567.98, 'sine', 0.03, 0.3, 0, false);
             }
         }
@@ -905,7 +1029,9 @@ function initThree() {
     scene.add(spikeGroup);
 
     buildFPRig();
+    buildPlayerAvatar();
     setupCameraControls();
+    detectMobile(); 
     
     window.addEventListener('resize', () => {
         const rw = window.innerWidth;
@@ -914,8 +1040,8 @@ function initThree() {
         camera.updateProjectionMatrix();
         renderer.setSize(rw, rh);
     });
-    renderHighscores();
-    renderAchievementsMenu();
+    
+    initFirebase();
 }
 
 let controlsInitialized = false;
@@ -928,7 +1054,8 @@ function setupCameraControls() {
 
     window.addEventListener('click', (e) => {
         if (!game.isPlaying || game.isFrozen || useDragLook) return;
-        if (e.target.closest('#hud') || e.target.closest('#pl-prompt') || e.target.closest('#menu-overlay') || e.target.closest('#confirm-modal') || e.target.closest('#settings-modal') || e.target.closest('#admin-modal')) return;
+        // Don't request lock if any modal or admin panel is active
+        if (e.target.closest('#hud') || e.target.closest('#pl-prompt') || e.target.closest('#menu-overlay') || e.target.closest('#confirm-modal') || e.target.closest('#settings-modal') || e.target.closest('#admin-panel-z') || e.target.closest('#admin-panel-x') || e.target.closest('#admin-panel-m') || e.target.closest('#mobile-controls') || e.target.closest('#name-prompt-modal')) return;
         if (activeCanvas) activeCanvas.requestPointerLock();
     });
 
@@ -939,7 +1066,12 @@ function setupCameraControls() {
             cross.style.display = 'block';
             useDragLook = false;
         } else {
-            if (game.isPlaying && !game.isFrozen && !useDragLook) {
+            // Check if pointer lock was exited because of opening a diagnostic panel
+            const zOpen = !document.getElementById('admin-panel-z').classList.contains('hidden');
+            const xOpen = !document.getElementById('admin-panel-x').classList.contains('hidden');
+            const mOpen = !document.getElementById('admin-panel-m').classList.contains('hidden');
+            
+            if (game.isPlaying && !game.isFrozen && !useDragLook && !zOpen && !xOpen && !mOpen) {
                 prompt.style.opacity = '1';
                 prompt.style.pointerEvents = 'auto';
             }
@@ -955,30 +1087,38 @@ function setupCameraControls() {
     });
 
     window.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1 && game.isPlaying && !game.isFrozen) {
-            touchStartPos.x = e.touches[0].clientX;
-            touchStartPos.y = e.touches[0].clientY;
+        if (e.target.closest('#joystick-zone') || e.target.closest('#btn-touch-sprint') || e.target.closest('#btn-touch-crouch') || e.target.closest('#btn-touch-swing') || e.target.closest('#hud') || e.target.closest('#menu-overlay') || e.target.closest('#settings-modal') || e.target.closest('#admin-panel-z') || e.target.closest('#admin-panel-x') || e.target.closest('#admin-panel-m') || e.target.closest('#name-prompt-modal')) {
+            return;
         }
-    }, { passive: true });
+        if (game.isPlaying && !game.isFrozen) {
+            const touch = e.changedTouches[0];
+            touchStartPos.x = touch.clientX;
+            touchStartPos.y = touch.clientY;
+            touchStartPos.id = touch.identifier;
+        }
+    });
 
     window.addEventListener('touchmove', (e) => {
-        if (e.touches.length === 1 && game.isPlaying && !game.isFrozen) {
-            const touchX = e.touches[0].clientX;
-            const touchY = e.touches[0].clientY;
-            const deltaX = touchX - touchStartPos.x;
-            const deltaY = touchY - touchStartPos.y;
+        if (game.isPlaying && !game.isFrozen) {
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+                if (touch.identifier === touchStartPos.id) {
+                    const deltaX = touch.clientX - touchStartPos.x;
+                    const deltaY = touch.clientY - touchStartPos.y;
 
-            player.yaw -= deltaX * 0.007;
-            player.pitch = Math.max(-Math.PI/3, Math.min(Math.PI/3, player.pitch - deltaY * 0.007));
+                    player.yaw -= deltaX * 0.006;
+                    player.pitch = Math.max(-Math.PI/3, Math.min(Math.PI/3, player.pitch - deltaY * 0.006));
 
-            touchStartPos.x = touchX;
-            touchStartPos.y = touchY;
+                    touchStartPos.x = touch.clientX;
+                    touchStartPos.y = touch.clientY;
+                }
+            }
         }
-    }, { passive: true });
+    });
 
     window.addEventListener('mousedown', (e) => {
         if ((useDragLook || document.pointerLockElement !== activeCanvas) && game.isPlaying && !game.isFrozen) {
-            if (e.target.closest('#hud') || e.target.closest('#pl-prompt') || e.target.closest('#menu-overlay') || e.target.closest('#confirm-modal') || e.target.closest('#settings-modal') || e.target.closest('#admin-modal')) return;
+            if (e.target.closest('#hud') || e.target.closest('#pl-prompt') || e.target.closest('#menu-overlay') || e.target.closest('#confirm-modal') || e.target.closest('#settings-modal') || e.target.closest('#admin-panel-z') || e.target.closest('#admin-panel-x') || e.target.closest('#admin-panel-m') || e.target.closest('#name-prompt-modal')) return;
             isDragging = true;
             previousMousePosition = { x: e.clientX, y: e.clientY };
         }
@@ -1010,15 +1150,131 @@ function setupCameraControls() {
     });
 }
 
+function detectMobile() {
+    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                           (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+    if (isMobileDevice) {
+        document.getElementById('mobile-controls').classList.remove('hidden');
+        useDragLook = true; 
+        document.getElementById('pl-prompt').style.display = 'none'; 
+        setupMobileControls();
+    }
+}
+
+function setupMobileControls() {
+    const joystickZone = document.getElementById('joystick-zone');
+    const joystickKnob = document.getElementById('joystick-knob');
+    const maxJoystickDist = 50; 
+    let joystickActive = false;
+    let joystickStart = { x: 0, y: 0 };
+    let joystickTouchId = null;
+
+    joystickZone.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        joystickTouchId = touch.identifier;
+        joystickActive = true;
+        
+        const rect = joystickZone.getBoundingClientRect();
+        joystickStart.x = rect.left + rect.width / 2;
+        joystickStart.y = rect.top + rect.height / 2;
+    });
+
+    joystickZone.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (!joystickActive) return;
+        
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            if (touch.identifier === joystickTouchId) {
+                const dx = touch.clientX - joystickStart.x;
+                const dy = touch.clientY - joystickStart.y;
+                const dist = Math.hypot(dx, dy);
+                
+                let angle = Math.atan2(dy, dx);
+                let moveDist = Math.min(dist, maxJoystickDist);
+                
+                const knobX = Math.cos(angle) * moveDist;
+                const knobY = Math.sin(angle) * moveDist;
+                joystickKnob.style.transform = `translate(${knobX}px, ${knobY}px)`;
+                
+                const threshold = 15;
+                keys['w'] = knobY < -threshold;
+                keys['s'] = knobY > threshold;
+                keys['a'] = knobX < -threshold;
+                keys['d'] = knobX > threshold;
+            }
+        }
+    });
+
+    const resetJoystick = () => {
+        joystickActive = false;
+        joystickTouchId = null;
+        joystickKnob.style.transform = `translate(0px, 0px)`;
+        keys['w'] = false;
+        keys['s'] = false;
+        keys['a'] = false;
+        keys['d'] = false;
+    };
+
+    joystickZone.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            if (touch.identifier === joystickTouchId) {
+                resetJoystick();
+            }
+        }
+    });
+
+    joystickZone.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        resetJoystick();
+    });
+
+    const btnSprint = document.getElementById('btn-touch-sprint');
+    btnSprint.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        keys['shift'] = true;
+    });
+    btnSprint.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        keys['shift'] = false;
+    });
+    btnSprint.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        keys['shift'] = false;
+    });
+
+    const btnCrouch = document.getElementById('btn-touch-crouch');
+    btnCrouch.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (game.isCrouching) {
+            if (!isUnderVent(player.x, player.z)) {
+                game.isCrouching = false;
+            } else {
+                showNotif("⚠️ Cannot stand up inside the ventilation shaft!");
+            }
+        } else {
+            game.isCrouching = true;
+        }
+    });
+
+    const btnSwing = document.getElementById('btn-touch-swing');
+    btnSwing.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        executePlayerAction();
+    });
+}
+
 function buildFPRig() {
     if (fpRig) camera.remove(fpRig);
     fpRig = new THREE.Group();
 
-    // Tung Tung Sahoor's authentic wooden skin model
     const woodMat = new THREE.MeshStandardMaterial({ color: 0xa15c38, roughness: 0.8 }); 
     const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x5e3a24, roughness: 0.9 }); 
 
-    // Left Arm (Thin wooden stick limb matching player avatar model)
+    // Left Arm (thin stick limb representing wooden body)
     const lArm = new THREE.Group(); lArm.name = 'leftArm';
     
     const lStickUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.22, 8), woodMat);
@@ -1051,7 +1307,7 @@ function buildFPRig() {
     lArm.position.set(-0.18, -0.14, -0.2);
     fpRig.add(lArm);
 
-    // Right Arm (Thin wooden stick limb matching player avatar model)
+    // Right Arm (thin stick limb representing wooden body)
     const rArm = new THREE.Group(); rArm.name = 'rightArm';
     
     const rStickUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.22, 8), woodMat);
@@ -1073,7 +1329,7 @@ function buildFPRig() {
     rArm.add(rHand);
 
     if (game.hasLaserGun) {
-        // Laser Blaster Reward Cheat
+        // Laser Blaster Weapon
         const gun = new THREE.Group();
         const gBody = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.2), new THREE.MeshStandardMaterial({ color: 0x22252a, metalness: 0.8, roughness: 0.2 }));
         gun.add(gBody);
@@ -1102,7 +1358,186 @@ function buildFPRig() {
 
     rArm.position.set(0.18, -0.14, -0.2);
     fpRig.add(rArm);
+    
+    // Prevent perspective overlapping issue by aligning visibility on creation
+    fpRig.visible = !game.isThirdPerson;
+    
     camera.add(fpRig);
+}
+
+// ================================================================
+//  THREE SEPARATE DIAGNOSTIC PANEL OPEN & CLOSE TRIGGERS
+// ================================================================
+function openAdminPanel(panelId) {
+    if (!game.isPlaying) return;
+    audio.playClick();
+    
+    // Track if mouse cursor lock is actively engaged prior to opening
+    game.savedPointerLockState = (document.pointerLockElement === activeCanvas);
+    
+    // Exit pointer lock completely to unlock mouse cursor
+    if (document.pointerLockElement) {
+        document.exitPointerLock();
+    }
+    
+    // Hide pointer lock prompt if currently showing
+    document.getElementById('pl-prompt').style.opacity = '0';
+    document.getElementById('pl-prompt').style.pointerEvents = 'none';
+
+    // Toggle selected overlay visibility
+    document.getElementById(`admin-panel-${panelId}`).classList.remove('hidden');
+}
+
+function closeAdminPanel(panelId) {
+    audio.playClick();
+    document.getElementById(`admin-panel-${panelId}`).classList.add('hidden');
+    
+    // Restore pointer lock based on previous active camera lock settings
+    if (game.savedPointerLockState && !useDragLook && game.isPlaying) {
+        if (activeCanvas) activeCanvas.requestPointerLock();
+    }
+}
+
+function buildPlayerAvatar() {
+    if (playerAvatar) scene.remove(playerAvatar);
+    playerAvatar = new THREE.Group();
+
+    // Semi-glossy iconic orange-brown wood color matching the images
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xe67e22, roughness: 0.7, metalness: 0.1 }); 
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x5e3a24, roughness: 0.9 }); 
+
+    // Head & Torso - iconic tall wood cylinder (Kentongan log block)
+    const torsoGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.75, 16);
+    const torso = new THREE.Mesh(torsoGeo, skinMat);
+    torso.position.y = 0.38;
+    playerAvatar.add(torso);
+
+    // Bulging Cartoon Eyes
+    const whiteEyeGeo = new THREE.SphereGeometry(0.05, 12, 12);
+    const pupilGeo = new THREE.SphereGeometry(0.024, 8, 8);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    
+    // Left Eye
+    const lEye = new THREE.Mesh(whiteEyeGeo, eyeMat);
+    lEye.position.set(0.05, 0.58, 0.11);
+    playerAvatar.add(lEye);
+    const lPupil = new THREE.Mesh(pupilGeo, pupilMat);
+    lPupil.position.set(0.05, 0.58, 0.15);
+    playerAvatar.add(lPupil);
+
+    // Right Eye
+    const rEye = new THREE.Mesh(whiteEyeGeo, eyeMat);
+    rEye.position.set(-0.05, 0.58, 0.11);
+    playerAvatar.add(rEye);
+    const rPupil = new THREE.Mesh(pupilGeo, pupilMat);
+    rPupil.position.set(-0.05, 0.58, 0.15);
+    playerAvatar.add(rPupil);
+
+    // Bulbous Protruding Human-like Nose
+    const noseGeo = new THREE.SphereGeometry(0.035, 10, 10);
+    noseGeo.scale(1, 1.3, 1);
+    const nose = new THREE.Mesh(noseGeo, skinMat);
+    nose.position.set(0, 0.51, 0.13);
+    playerAvatar.add(nose);
+
+    // Wide Cartoon Smile
+    const smileGeo = new THREE.TorusGeometry(0.048, 0.009, 8, 16, Math.PI);
+    const smileMat = new THREE.MeshBasicMaterial({ color: 0x221105 });
+    const smile = new THREE.Mesh(smileGeo, smileMat);
+    smile.position.set(0, 0.43, 0.12);
+    smile.rotation.x = Math.PI / 5; 
+    smile.rotation.z = Math.PI; 
+    playerAvatar.add(smile);
+
+    // Dynamic headphones from image_ea2be7.jpg
+    const cupGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.03, 12);
+    const bandGeo = new THREE.TorusGeometry(0.14, 0.012, 8, 16, Math.PI);
+    const phoneMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
+    
+    const lCup = new THREE.Mesh(cupGeo, phoneMat);
+    lCup.rotation.z = Math.PI / 2;
+    lCup.position.set(0.145, 0.58, 0);
+    playerAvatar.add(lCup);
+    
+    const rCup = new THREE.Mesh(cupGeo, phoneMat);
+    rCup.rotation.z = Math.PI / 2;
+    rCup.position.set(-0.145, 0.58, 0);
+    playerAvatar.add(rCup);
+    
+    const band = new THREE.Mesh(bandGeo, phoneMat);
+    band.position.set(0, 0.58, 0);
+    band.rotation.z = Math.PI; 
+    playerAvatar.add(band);
+
+    // Skinny Stick Legs & flat bare feet
+    const legGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.35, 8);
+    const footGeo = new THREE.BoxGeometry(0.065, 0.024, 0.13);
+    
+    const lLeg = new THREE.Mesh(legGeo, skinMat);
+    lLeg.position.set(0.06, 0.12, 0);
+    playerAvatar.add(lLeg);
+    const lFoot = new THREE.Mesh(footGeo, skinMat);
+    lFoot.position.set(0.06, -0.05, 0.04);
+    playerAvatar.add(lFoot);
+
+    const rLeg = new THREE.Mesh(legGeo, skinMat);
+    rLeg.position.set(-0.06, 0.12, 0);
+    playerAvatar.add(rLeg);
+    const rFoot = new THREE.Mesh(footGeo, skinMat);
+    rFoot.position.set(-0.06, -0.05, 0.04);
+    playerAvatar.add(rFoot);
+
+    // Build highly responsive arm hinge groups for professional third-person visual swinging animations
+    const armGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.32, 8);
+
+    // Left Hinge Arm
+    const lArmGroup = new THREE.Group();
+    lArmGroup.name = "avatarLeftArm";
+    lArmGroup.position.set(-0.16, 0.54, 0);
+    lArmGroup.rotation.z = 0.25;
+    const lArmMesh = new THREE.Mesh(armGeo, skinMat);
+    lArmMesh.position.y = -0.16;
+    lArmGroup.add(lArmMesh);
+    playerAvatar.add(lArmGroup);
+
+    // Right Hinge Arm
+    const rArmGroup = new THREE.Group();
+    rArmGroup.name = "avatarRightArm";
+    rArmGroup.position.set(0.16, 0.54, 0);
+    rArmGroup.rotation.z = -0.25;
+    const rArmMesh = new THREE.Mesh(armGeo, skinMat);
+    rArmMesh.position.y = -0.16;
+    rArmGroup.add(rArmMesh);
+
+    // Weapon Nested dynamically in Right Hand Pivot point
+    if (game.hasLaserGun) {
+        const gun = new THREE.Group();
+        gun.name = "avatarWeapon";
+        const gBody = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.06, 0.16), new THREE.MeshStandardMaterial({ color: 0x22252a }));
+        gun.add(gBody);
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.1, 8), new THREE.MeshStandardMaterial({ color: 0xcccccc }));
+        barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0.01, -0.1); gun.add(barrel);
+        
+        gun.position.set(0, -0.32, -0.05);
+        rArmGroup.add(gun);
+    } else {
+        const bat = new THREE.Group();
+        bat.name = "avatarWeapon";
+        const bMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.01, 0.35, 8), woodMat);
+        bMesh.position.y = -0.125;
+        bMesh.rotation.x = Math.PI / 2;
+        bat.add(bMesh);
+        bat.position.set(0, -0.32, -0.05);
+        bat.rotation.set(-Math.PI / 6, 0, 0);
+        rArmGroup.add(bat);
+    }
+    
+    playerAvatar.add(rArmGroup);
+
+    // Prevent perspective overlapping issue by aligning visibility on creation
+    playerAvatar.visible = game.isThirdPerson;
+    scene.add(playerAvatar);
 }
 
 function generateMaze(cols, rows) {
@@ -1134,7 +1569,6 @@ function generateMaze(cols, rows) {
         }
     }
 
-    // Carve hiding spots & alcoves throughout the maze
     for (let r = 1; r < rows - 1; r++) {
         for (let c = 1; c < cols - 1; c++) {
             if (mazeGrid[r][c] === 1) {
@@ -1150,10 +1584,8 @@ function generateMaze(cols, rows) {
         }
     }
 
-    // Embed Ventilation shafts (Value 2 on grid)
     for (let r = 2; r < rows - 2; r++) {
         for (let c = 2; c < cols - 2; c++) {
-            // Keep vents far away from player spawn point
             if (Math.hypot(c - 1.5, r - 1.5) < 3) continue;
 
             if (mazeGrid[r][c] === 1) {
@@ -1240,7 +1672,6 @@ function buildLevel() {
                 wallGroup.add(v);
             }
             
-            // Spike Wall Traps unlock beginning at Level 2
             if (game.level >= 2 && mazeGrid[r][c] === 1 && r > 1 && r < sz-2 && c > 1 && c < sz-2) {
                 const distToSpawn = Math.hypot(c - 1.5, r - 1.5);
                 if (distToSpawn > 2.5) { 
@@ -1252,7 +1683,6 @@ function buildLevel() {
         }
     }
 
-    // Deploy glowing floor portal traps
     let trapsPlaced = 0;
     while (trapsPlaced < Math.min(3 + game.level, 8)) {
         let tc = Math.floor(Math.random() * (sz - 2)) + 1;
@@ -1268,7 +1698,9 @@ function buildLevel() {
 
     game.total = Math.min(1 + game.level, 5);
     game.caught = 0;
+    
     buildFPRig();
+    buildPlayerAvatar();
     updateHUD();
 
     for (let i = 0; i < game.total; i++) spawnCreature(sz);
@@ -1550,6 +1982,26 @@ function checkEnemyWalkable(realX, realZ) {
 }
 
 function updateCreaturesAI() {
+    for (let i = 0; i < tralelas.length; i++) {
+        for (let j = i + 1; j < tralelas.length; j++) {
+            let t1 = tralelas[i];
+            let t2 = tralelas[j];
+            if (t1.caught || t2.caught) continue;
+            let dx = t2.x - t1.x;
+            let dz = t2.z - t1.z;
+            let dist = Math.hypot(dx, dz);
+            if (dist < 1.1) {
+                let force = (1.1 - dist) * 0.08;
+                let angle = Math.atan2(dz, dx);
+                if (dist === 0) angle = Math.random() * Math.PI * 2;
+                let pushX = Math.cos(angle) * force;
+                let pushZ = Math.sin(angle) * force;
+                t1.x -= pushX; t1.z -= pushZ;
+                t2.x += pushX; t2.z += pushZ;
+            }
+        }
+    }
+
     tralelas.forEach(t => {
         if (t.caught) return;
 
@@ -1578,9 +2030,10 @@ function updateCreaturesAI() {
         }
         
         const prop = t.mesh.getObjectByName('propeller'); if (prop) prop.rotation.y += 0.25;
-        const blades = t.mesh.getObjectByName('propeller_blades'); if (blades) blades.rotation.y += 0.25;
 
         const pDist = Math.hypot(player.x - t.x, player.z - t.z);
+
+        let vx = 0, vz = 0;
 
         if (!game.isFrozen && !game.isTrapped) {
             const gc = Math.floor(t.x / CS), gr = Math.floor(t.z / CS);
@@ -1599,17 +2052,16 @@ function updateCreaturesAI() {
                     if (t.floatingQuestMark) t.floatingQuestMark.visible = false;
                     showNotif("😅 THE MONSTER LOST TRACK OF YOU AND HAS CALMED DOWN!");
                     
-                    // Fixed: Gun weapon reward actually gets GIVEN to the player now
                     game.hasLaserGun = true;
                     buildFPRig();
+                    buildPlayerAvatar();
+                    updateHUD();
                     showNotif("🔫 SURVIVAL COMPLETE! FUTURISTIC LASER BLASTER EQUIPPED!");
                 }
             } 
             else if (t.isAngry) {
                 t.searchTimer = 0;
                 if (t.floatingQuestMark) t.floatingQuestMark.visible = false;
-                t.mesh.lookAt(player.x, t.mesh.position.y, player.z);
-                t.mesh.rotateY(Math.PI);
 
                 t.pathTick++;
                 if (!t.path || t.pathTick % 12 === 0) {
@@ -1627,17 +2079,18 @@ function updateCreaturesAI() {
                 t.targetX = targetCell[0] * CS + CS/2;
                 t.targetZ = targetCell[1] * CS + CS/2;
 
-                // Fixed: Slower speed logic to ensure the chase is fluid instead of glitching
-                const chaseSpeed = 0.025 + (game.level * 0.004);
+                const chaseSpeed = 0.048 + (game.level * 0.006); 
                 const tgtDist = Math.hypot(t.targetX - t.x, t.targetZ - t.z);
                 
                 if (tgtDist <= chaseSpeed) {
+                    vx = t.targetX - t.x;
+                    vz = t.targetZ - t.z;
                     t.x = t.targetX;
                     t.z = t.targetZ;
                 } else {
                     const angle = Math.atan2(t.targetX - t.x, t.targetZ - t.z);
-                    const vx = Math.sin(angle) * chaseSpeed;
-                    const vz = Math.cos(angle) * chaseSpeed;
+                    vx = Math.sin(angle) * chaseSpeed;
+                    vz = Math.cos(angle) * chaseSpeed;
 
                     const nextX = t.x + vx;
                     const nextZ = t.z + vz;
@@ -1653,9 +2106,6 @@ function updateCreaturesAI() {
             } 
             else {
                 t.searchTimer = 0;
-                t.mesh.lookAt(player.x, t.mesh.position.y, player.z);
-                t.mesh.rotateY(Math.PI);
-
                 const tgtDist = Math.hypot(t.x - t.targetX, t.z - t.targetZ);
 
                 if (pDist < 8.0 && tgtDist < 0.2) {
@@ -1670,15 +2120,17 @@ function updateCreaturesAI() {
                     if (best) { t.targetX = best.c * CS + CS/2; t.targetZ = best.r * CS + CS/2; }
                 }
 
-                const runSpeed = 0.03 + (game.level * 0.005);
+                const runSpeed = 0.024 + (game.level * 0.003); 
                 
                 if (tgtDist <= runSpeed) {
+                    vx = t.targetX - t.x;
+                    vz = t.targetZ - t.z;
                     t.x = t.targetX;
                     t.z = t.targetZ;
                 } else {
                     const angle = Math.atan2(t.targetX - t.x, t.targetZ - t.z);
-                    const vx = Math.sin(angle) * runSpeed;
-                    const vz = Math.cos(angle) * runSpeed;
+                    vx = Math.sin(angle) * runSpeed;
+                    vz = Math.cos(angle) * runSpeed;
 
                     const nextX = t.x + vx;
                     const nextZ = t.z + vz;
@@ -1688,9 +2140,23 @@ function updateCreaturesAI() {
                 }
             }
 
-            t.mesh.position.x = t.x; t.mesh.position.z = t.z;
-            t.bobTimer += (0.12 + (game.level * 0.015));
+            t.mesh.position.x += (t.x - t.mesh.position.x) * 0.12;
+            t.mesh.position.z += (t.z - t.mesh.position.z) * 0.12;
+
+            let targetRotation = t.mesh.rotation.y;
+            if (t.isAngry) {
+                targetRotation = Math.atan2(player.x - t.x, player.z - t.z) + Math.PI;
+            } else {
+                if (Math.hypot(vx, vz) > 0.01) {
+                    targetRotation = Math.atan2(vx, vz) + Math.PI;
+                }
+            }
             
+            let angleDiff = targetRotation - t.mesh.rotation.y;
+            angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+            t.mesh.rotation.y += angleDiff * 0.12; 
+
+            t.bobTimer += (0.12 + (game.level * 0.015));
             t.mesh.position.y = 0.55 + Math.abs(Math.sin(t.bobTimer)) * 0.12;
 
             if (t.bodyMesh) {
@@ -1728,7 +2194,14 @@ function processPlayerMovement() {
     let currentSpeed = player.speed * 1.15;
     let isSprinting = false;
 
-    if (keys['shift'] && game.stamina > 5 && Math.hypot(mx, mz) > 0) {
+    if (game.stamina <= 5) {
+        game.isFatigued = true;
+    }
+    if (game.isFatigued && game.stamina >= 30) {
+        game.isFatigued = false; 
+    }
+
+    if (keys['shift'] && !game.isFatigued && Math.hypot(mx, mz) > 0) {
         currentSpeed *= 1.8;
         game.stamina = Math.max(0, game.stamina - 0.6);
         isSprinting = true;
@@ -1749,7 +2222,6 @@ function processPlayerMovement() {
         if (checkCellWalkable(targetX, player.z)) player.x = targetX;
         if (checkCellWalkable(player.x, targetZ)) player.z = targetZ;
 
-        // Footstep synthesis logic
         const footstepInterval = isSprinting ? 240 : (game.isCrouching ? 550 : 380);
         const now = Date.now();
         if (now - lastFootstepPlayTime > footstepInterval) {
@@ -1760,21 +2232,63 @@ function processPlayerMovement() {
 
     document.getElementById('stamina-bar').style.width = game.stamina + '%';
 
-    const wave = Date.now() * 0.0015 * (keys['shift']? 1.8 : 1.0);
+    const stamBarEl = document.getElementById('stamina-bar');
+    if (game.isFatigued) {
+        stamBarEl.style.background = 'linear-gradient(90deg, #ef4444, #f87171)'; 
+    } else {
+        stamBarEl.style.background = 'linear-gradient(90deg, #10b981, #34d399)'; 
+    }
+
+    const wave = Date.now() * 0.0015 * (isSprinting ? 1.8 : 1.0);
     const rArm = fpRig.getObjectByName('rightArm');
     const lArm = fpRig.getObjectByName('leftArm');
 
+    let bobY = 0;
+    if (dist > 0) {
+        bobY = Math.abs(Math.sin(wave * 5)) * 0.06;
+    }
+
     if (swingTime > 0) {
         swingTime--;
-        if (rArm) rArm.rotation.x = -Math.sin(swingTime * 0.3) * 1.4;
-    } else if (rArm && lArm && dist > 0) {
-        rArm.rotation.x = Math.sin(wave * 5) * 0.12;
-        lArm.rotation.x = Math.cos(wave * 5) * 0.10;
-        camera.position.y = (game.isCrouching ? 0.6 : 1.2) + Math.abs(Math.sin(wave * 5)) * 0.06;
-    } else if (rArm && lArm) {
-        rArm.rotation.x = Math.sin(wave * 2) * 0.02;
-        lArm.rotation.x = Math.cos(wave * 2) * 0.02;
-        camera.position.y = game.isCrouching ? 0.6 : 1.2;
+    }
+
+    // Animate First Person View Arms
+    if (fpRig && fpRig.visible) {
+        if (swingTime > 0) {
+            if (rArm) rArm.rotation.x = -Math.sin(swingTime * 0.3) * 1.4;
+        } else if (rArm && lArm && dist > 0) {
+            rArm.rotation.x = Math.sin(wave * 5) * 0.12;
+            lArm.rotation.x = Math.cos(wave * 5) * 0.10;
+        } else if (rArm && lArm) {
+            rArm.rotation.x = Math.sin(wave * 2) * 0.02;
+            lArm.rotation.x = Math.cos(wave * 2) * 0.02;
+        }
+    }
+
+    // Animate Third Person Avatar Hinge Arms
+    if (playerAvatar && playerAvatar.visible) {
+        playerAvatar.position.y = (game.isCrouching ? 0.35 : 0.65) + bobY;
+        const rArmAvatar = playerAvatar.getObjectByName("avatarRightArm");
+        const lArmAvatar = playerAvatar.getObjectByName("avatarLeftArm");
+
+        if (rArmAvatar && lArmAvatar) {
+            if (swingTime > 0) {
+                rArmAvatar.rotation.x = -Math.sin(swingTime * 0.35) * 2.2;
+                rArmAvatar.rotation.y = -Math.sin(swingTime * 0.35) * 0.5;
+            } else if (dist > 0) {
+                rArmAvatar.rotation.x = Math.sin(wave * 5) * 0.6;
+                rArmAvatar.rotation.y = 0;
+                lArmAvatar.rotation.x = -Math.sin(wave * 5) * 0.6;
+            } else {
+                rArmAvatar.rotation.x = Math.sin(wave * 2) * 0.08;
+                rArmAvatar.rotation.y = 0;
+                lArmAvatar.rotation.x = -Math.sin(wave * 2) * 0.08;
+            }
+        }
+    }
+
+    if (!game.isThirdPerson) {
+        camera.position.y = (game.isCrouching ? 0.6 : 1.2) + bobY;
     }
 
     if (!game.isTrapped && !game.spawnProtected) {
@@ -1941,6 +2455,7 @@ function executePlayerAction() {
         setTimeout(() => {
             if (!game.isPlaying || game.isTrapped) return;
             audio.playLaser();
+            
             raycaster.setFromCamera(centerVec, camera);
             
             const headingX = -Math.sin(player.yaw), headingZ = -Math.cos(player.yaw);
@@ -1951,10 +2466,18 @@ function executePlayerAction() {
             tralelas.forEach(t => {
                 if (t.caught) return;
                 const headingVec = new THREE.Vector3(t.x, 0.65, t.z);
-                const deviationDist = raycaster.ray.distanceToPoint(headingVec);
                 const rangeDist = Math.hypot(player.x - t.x, player.z - t.z);
                 
-                if (deviationDist < 1.3 && rangeDist < 14.0) {
+                const toEnemyFromCam = new THREE.Vector3(t.x - camera.position.x, 0, t.z - camera.position.z).normalize();
+                const camDir = new THREE.Vector3();
+                camera.getWorldDirection(camDir);
+                camDir.y = 0;
+                camDir.normalize();
+
+                const dot = toEnemyFromCam.dot(camDir);
+                const deviationDist = raycaster.ray.distanceToPoint(headingVec);
+                
+                if (dot > 0.55 && deviationDist < 2.5 && rangeDist < 16.0) {
                     catchCreature(t);
                 }
             });
@@ -1967,7 +2490,19 @@ function executePlayerAction() {
         tralelas.forEach(t => {
             if (t.caught) return;
             const dp = Math.hypot(player.x - t.x, player.z - t.z);
-            if (dp < 2.5) catchCreature(t);
+            
+            const toEnemy = new THREE.Vector3(t.x - player.x, 0, t.z - player.z);
+            const lookDir = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw)).normalize();
+            const dot = toEnemy.clone().normalize().dot(lookDir);
+            
+            if ((dp < 4.5 && dot > 0.5) || dp < 1.8) {
+                if (t.isAngry) {
+                    triggerPlayerDeath();
+                    showNotif("💀 YOU TRIED TO BAT AN ANGRY MONSTER! IT DESTROYED YOU!");
+                } else {
+                    catchCreature(t);
+                }
+            }
         });
     }
 }
@@ -2008,346 +2543,411 @@ function levelComplete() {
             game.isPlaying = true;
             startFreezePhase();
         }
-    }, 600);
-}
-
-function victoryScreen() {
-    game.isPlaying = false;
-    audio.playWin();
-    unlockAchievement('champion');
-    
-    const elapsed = ((Date.now() - game.startTime) / 1000).toFixed(1);
-    
-    let pName = prompt("🎉 CONGRATULATIONS SACRED CHASER! You cleared all 5 meme levels! Enter your name for the highscore:", "Player");
-    if (!pName || pName.trim() === "") pName = "Anonymous Chaser";
-    
-    highscores.push({ name: pName.substring(0, 14), time: parseFloat(elapsed) });
-    highscores.sort((a,b)=>a.time - b.time);
-    highscores = highscores.slice(0, 5);
-    localStorage.setItem('sahoor_highscores', JSON.stringify(highscores));
-    
-    renderHighscores();
-    
-    document.getElementById('hud').style.display = 'none';
-    document.getElementById('minimap-wrap').style.display = 'none';
-    document.getElementById('menu-overlay').style.display = 'flex';
-    showNotif(`🏆 GAME COMPLETED! Clear time: ${elapsed}s`);
-}
-
-function startFreezePhase() {
-    game.isFrozen = true;
-    game.freezeLeft = 4;
-    
-    const overlay = document.getElementById('freeze-overlay');
-    const numEl = document.getElementById('freeze-num');
-    const descEl = document.getElementById('freeze-desc');
-    
-    const lv = LEVELS[Math.min(game.level, 5)];
-    descEl.textContent = `Level ${game.level}: ${lv.name} - ${lv.desc}`;
-    
-    overlay.style.opacity = '1';
-    numEl.textContent = game.freezeLeft;
-    
-    if (game.freezeInterval) clearInterval(game.freezeInterval);
-    
-    game.freezeInterval = setInterval(() => {
-        game.freezeLeft--;
-        if (game.freezeLeft <= 0) {
-            clearInterval(game.freezeInterval);
-            game.isFrozen = false;
-            overlay.style.opacity = '0';
-            game.levelStartTime = Date.now();
-        } else {
-            numEl.textContent = game.freezeLeft;
-            audio.playClick();
-        }
     }, 1000);
 }
 
-function updateHUD() {
-    document.getElementById('hud-lv').textContent = game.level;
-    document.getElementById('hud-caught').textContent = `${game.caught}/${game.total}`;
-    const pct = (game.caught / game.total) * 100;
-    document.getElementById('catch-bar').style.width = pct + '%';
+function victoryScreen() {
+    unlockAchievement('champion');
+    audio.playWin();
+    
+    document.getElementById('gc').style.display = 'block';
+    document.getElementById('hud').style.display = 'none';
+    document.getElementById('minimap-wrap').style.display = 'none';
+    
+    document.getElementById('prompt-time-val').textContent = game.timeElapsed.toFixed(1);
+    document.getElementById('username-input').value = ""; 
+    document.getElementById('name-prompt-modal').classList.remove('hidden');
 }
 
-function showNotif(txt) {
-    const el = document.getElementById('notif');
-    el.textContent = txt;
-    el.style.display = 'block';
-    setTimeout(() => { if (el.textContent === txt) el.style.display = 'none'; }, 4000);
+document.getElementById('btn-submit-score').addEventListener('click', async () => {
+    let nameTag = document.getElementById('username-input').value.trim();
+    if (!nameTag) nameTag = "Hunter";
+    
+    audio.playClick();
+    document.getElementById('name-prompt-modal').classList.add('hidden');
+    
+    await uploadHighScore(nameTag.substring(0, 12), game.timeElapsed);
+    
+    const box = document.getElementById('menu-box');
+    box.querySelector('h2').textContent = "👑 CHAMPION OF SAHOOR!";
+    box.querySelector('.tagline').textContent = `Conquered all mazes in ${game.timeElapsed.toFixed(1)}s!`;
+    document.getElementById('btn-play').textContent = "▶ RESTART THE CHASE";
+    document.getElementById('menu-overlay').style.display = 'flex';
+});
+
+function updateHUD() {
+    const lv = LEVELS[Math.min(game.level, 5)];
+    document.getElementById('hud-lv').textContent = game.level;
+    document.getElementById('hud-caught').textContent = `${game.caught}/${game.total}`;
+    document.getElementById('hud-sub').textContent = `${lv.name}: ${lv.desc}`;
+    document.getElementById('catch-bar').style.width = game.total > 0 ? (game.caught / game.total) * 100 + '%' : '0%';
+    document.getElementById('hud-weapon').textContent = game.hasLaserGun ? "⚡ LASER" : "🏏 BAT";
 }
 
 function renderHighscores() {
-    const list = document.getElementById('score-list');
-    list.innerHTML = highscores.map((s, i) => `
-        <li>
-            <span>${i+1}. <span class="t">${s.name}</span></span>
-            <span class="font-mono text-purple-300 font-bold">${s.time.toFixed(1)}s</span>
+    const el = document.getElementById('score-list');
+    if (!highscores || highscores.length === 0) {
+        el.innerHTML = `<li class="text-xs text-purple-400 italic text-center py-4">No records posted yet. Be the first!</li>`;
+        return;
+    }
+    highscores.sort((a,b) => a.time - b.time);
+    el.innerHTML = highscores.slice(0, 8).map((s, i) => `
+        <li class="flex justify-between items-center py-1.5 border-b border-purple-900/30">
+            <span class="text-purple-200 text-sm">
+                ${['🥇','🥈','🥉'][i] || '▪'} <b class="text-white">${s.name}</b>
+            </span>
+            <span class="t text-cyan-400 font-mono text-sm">${s.time.toFixed(1)}s</span>
         </li>
     `).join('');
 }
 
-function renderMinimap() {
-    if (!game.isPlaying || game.isTrapped) return;
-    const canvas = document.getElementById('minimap');
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 110, 110);
+function showNotif(txt) {
+    const el = document.getElementById('notif'); el.textContent = txt; el.style.display = 'block';
+    clearTimeout(el._t); el._t = setTimeout(() => el.style.display = 'none', 3500);
+}
 
+function startFreezePhase() {
+    game.isFrozen = true; game.freezeLeft = 5;
+    document.getElementById('freeze-num').textContent = '5';
+    document.getElementById('freeze-desc').textContent = `Level ${game.level}: ${LEVELS[Math.min(game.level, 5)].name}`;
+    document.getElementById('freeze-overlay').style.opacity = '1';
+    
+    if (game.freezeInterval) clearInterval(game.freezeInterval);
+    game.freezeInterval = setInterval(() => {
+        game.freezeLeft--;
+        document.getElementById('freeze-num').textContent = game.freezeLeft;
+        if (game.freezeLeft <= 0) {
+            clearInterval(game.freezeInterval); game.isFrozen = false;
+            game.startTime = Date.now() - (game.timeElapsed * 1000);
+            game.levelStartTime = Date.now();
+            document.getElementById('freeze-overlay').style.opacity = '0';
+            if (window.innerWidth > 768 && !useDragLook) document.getElementById('pl-prompt').style.opacity = '1';
+        }
+    }, 1000);
+}
+
+function drawMinimap() {
+    if (!mazeGrid || mazeGrid.length === 0) return;
+    const canvas = document.getElementById('minimap'); const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
     const sz = 7 + game.level * 3;
-    const scale = 110 / (sz * CS);
-
-    ctx.fillStyle = 'rgba(124, 58, 237, 0.15)';
+    const cw = W / sz, ch = H / sz;
+    
+    ctx.fillStyle = '#0d0a14'; ctx.fillRect(0,0,W,H);
     for (let r = 0; r < sz; r++) {
         for (let c = 0; c < sz; c++) {
-            if (mazeGrid[r][c] === 1) {
-                ctx.fillRect(c * CS * scale, r * CS * scale, CS * scale, CS * scale);
-            } else if (mazeGrid[r][c] === 2) {
-                ctx.fillStyle = '#f59e0b';
-                ctx.fillRect(c * CS * scale, r * CS * scale, CS * scale, CS * scale);
-                ctx.fillStyle = 'rgba(124, 58, 237, 0.15)';
+            if (mazeGrid[r][c] === 1) ctx.fillStyle = '#4a1d96';
+            else if (mazeGrid[r][c] === 2) ctx.fillStyle = '#f59e0b'; 
+            else ctx.fillStyle = '#1a1025';
+            ctx.fillRect(c * cw, r * ch, cw - 0.5, ch - 0.5);
+        }
+    }
+    
+    tralelas.forEach(t => {
+        if (t.caught) return;
+        ctx.fillStyle = t.isAngry ? '#ef4444' : (t.lv.color==='rainbow'?'#ff00ff':t.lv.color);
+        ctx.beginPath(); ctx.arc((t.mesh.position.x/CS)*cw, (t.mesh.position.z/CS)*ch, 3, 0, Math.PI*2); ctx.fill();
+    });
+
+    const px = (player.x / CS) * cw, pz = (player.z / CS) * ch;
+    ctx.fillStyle = '#c084fc'; ctx.beginPath(); ctx.arc(px, pz, 4, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#e9d5ff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, pz); ctx.lineTo(px - Math.sin(player.yaw)*7, pz - Math.cos(player.yaw)*7); ctx.stroke();
+}
+
+function triggerAdminCommand(type) {
+    audio.playClick();
+    if (type === 'tp_forward') {
+        unlockAchievement('cheat');
+        const headingX = -Math.sin(player.yaw), headingZ = -Math.cos(player.yaw);
+        const nextX = player.x + headingX * 3.5;
+        const nextZ = player.z + headingZ * 3.5;
+        if (checkCellWalkable(nextX, nextZ)) {
+            player.x = nextX;
+            player.z = nextZ;
+            showNotif("🧙 Warped Ahead!");
+        } else {
+            showNotif("🧙 Teleport blocked by solid walls!");
+        }
+    }
+    else if (type === 'tp_capture') {
+        unlockAchievement('cheat');
+        const t = tralelas.find(x => !x.caught);
+        if (t) {
+            player.x = t.x - 1;
+            player.z = t.z - 1;
+            catchCreature(t);
+            showNotif("🧙 Warp Captured Nearest Monster!");
+        }
+    }
+    else if (type === 'nuke_all') {
+        unlockAchievement('cheat');
+        tralelas.forEach(t => { if(!t.caught) catchCreature(t); });
+        showNotif("🧙 Tactical Nuke Cleared Level!");
+    }
+    else if (type === 'skip_level') {
+        unlockAchievement('cheat');
+        levelComplete();
+        showNotif("🧙 Level Bypassed!");
+    }
+    else if (type === 'toggle_laser') {
+        unlockAchievement('cheat');
+        game.hasLaserGun = !game.hasLaserGun;
+        buildFPRig();
+        buildPlayerAvatar();
+        updateHUD();
+        document.getElementById('btn-admin-laser').textContent = game.hasLaserGun ? "Equipped Laser" : "Equipped Bat";
+        showNotif(game.hasLaserGun ? "🧙 Laser Blaster Active!" : "🧙 Baseball Bat Active!");
+    }
+    else if (type === 'toggle_speed') {
+        unlockAchievement('cheat');
+        keys['inf_speed'] = !keys['inf_speed'];
+        document.getElementById('btn-admin-speed').textContent = keys['inf_speed'] ? "Disable Speed" : "Activate Speed";
+        showNotif(keys['inf_speed'] ? "🧙 Speed Hack On!" : "🧙 Speed Hack Off!");
+    }
+    else if (type === 'trigger_angry') {
+        unlockAchievement('cheat');
+        tralelas.forEach(t => {
+            if (!t.caught && !t.isAngry) {
+                t.isAngry = true;
+                if (!t.floatingQuestMark) {
+                    const qCanvas = document.createElement('canvas'); qCanvas.width = 32; qCanvas.height = 32;
+                    const qCtx = qCanvas.getContext('2d'); qCtx.fillStyle = '#ff3333'; qCtx.font = 'bold 28px sans-serif'; qCtx.fillText('❓', 0, 26);
+                    const qTex = new THREE.CanvasTexture(qCanvas);
+                    t.floatingQuestMark = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), new THREE.MeshBasicMaterial({ map: qTex, transparent: true, side: THREE.DoubleSide }));
+                    t.floatingQuestMark.position.set(0, 0.9, 0);
+                    t.mesh.add(t.floatingQuestMark);
+                } else {
+                    t.floatingQuestMark.visible = true;
+                }
             }
+        });
+        showNotif("🧙 Forced Active Monster Aggression!");
+    }
+    else if (type === 'spawn_trap') {
+        unlockAchievement('cheat');
+        const headingX = -Math.sin(player.yaw), headingZ = -Math.cos(player.yaw);
+        deployFloorTrapMesh(player.x + headingX * 1.5, player.z + headingZ * 1.5);
+        showNotif("🧙 Captured Floor Trap 2ft Ahead!");
+    }
+}
+
+window.addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    keys[k] = true;
+
+    if (k === 'c') {
+        if (game.isCrouching) {
+            if (!isUnderVent(player.x, player.z)) {
+                game.isCrouching = false;
+            } else {
+                showNotif("⚠️ Cannot stand up inside the ventilation shaft!");
+            }
+        } else {
+            game.isCrouching = true;
         }
     }
 
-    tralelas.forEach(t => {
-        if (t.caught) return;
-        ctx.fillStyle = t.isAngry ? '#ef4444' : '#67e8f9';
-        ctx.beginPath();
-        ctx.arc(t.x * scale, t.z * scale, 3, 0, Math.PI * 2);
-        ctx.fill();
-    });
+    if (k === 'alt') {
+        e.preventDefault();
+        game.isThirdPerson = !game.isThirdPerson;
+        if (fpRig) fpRig.visible = !game.isThirdPerson;
+        if (playerAvatar) playerAvatar.visible = game.isThirdPerson;
+        showNotif(game.isThirdPerson ? "🎥 Fortnite Shoulder Camera Active!" : "🎥 First-Person Mode Enabled!");
+    }
 
-    ctx.fillStyle = '#4ade80';
-    ctx.beginPath();
-    ctx.arc(player.x * scale, player.z * scale, 3.5, 0, Math.PI * 2);
-    ctx.fill();
+    // FIXED: Split diagnostic panels into 3 separate overlay hotkeys that correctly unlock & relock cursor
+    if (e.ctrlKey || e.metaKey) {
+        if (k === 'z') { 
+            e.preventDefault(); 
+            openAdminPanel('z');
+        }
+        if (k === 'x') { 
+            e.preventDefault(); 
+            openAdminPanel('x');
+        }
+        if (k === 'm') { 
+            e.preventDefault(); 
+            openAdminPanel('m');
+        }
+    }
+    if (e.code === 'Space') { e.preventDefault(); executePlayerAction(); }
+});
 
-    ctx.strokeStyle = '#4ade80';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(player.x * scale, player.z * scale);
-    ctx.lineTo((player.x - Math.sin(player.yaw) * 12) * scale, (player.z - Math.cos(player.yaw) * 12) * scale);
-    ctx.stroke();
-}
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+window.addEventListener('mousedown', e => { if (e.button === 0 && (document.pointerLockElement === activeCanvas || useDragLook)) executePlayerAction(); });
 
-// Runtime Game Loop engine hook
-function loop() {
-    requestAnimationFrame(loop);
-
+function animate() {
+    requestAnimationFrame(animate);
+    
     if (game.isPlaying) {
         if (game.isTrapped) {
             processTrapDimensionLoop();
         } else {
+            if (!game.isFrozen && game.startTime) {
+                game.timeElapsed = (Date.now() - game.startTime) / 1000;
+                document.getElementById('hud-time').textContent = game.timeElapsed.toFixed(1) + 's';
+            }
             processPlayerMovement();
             updateCreaturesAI();
             updateWallSpikes();
-            
-            if (!game.isFrozen) {
-                const sec = ((Date.now() - game.startTime) / 1000).toFixed(1);
-                document.getElementById('hud-time').textContent = sec + 's';
+        }
+
+        if (!game.isTrapped) {
+            if (game.isThirdPerson) {
+                camera.rotation.set(0, 0, 0);
+                camera.rotateY(player.yaw);
+                camera.rotateX(player.pitch);
+
+                const localOffset = new THREE.Vector3(0.55, game.isCrouching ? 0.25 : 0.55, 2.2);
+                localOffset.applyEuler(camera.rotation);
+
+                camera.position.set(player.x, game.isCrouching ? 0.6 : 1.2, player.z).add(localOffset);
+
+                if (playerAvatar) {
+                    playerAvatar.position.x = player.x;
+                    playerAvatar.position.z = player.z;
+                    playerAvatar.rotation.y = player.yaw + Math.PI; 
+                }
+            } else {
+                camera.position.set(player.x, camera.position.y, player.z);
+                camera.rotation.set(0, 0, 0); camera.rotateY(player.yaw); camera.rotateX(player.pitch);
             }
         }
+
         updateParticles();
-        
-        if (!game.isTrapped) {
-            camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
-            camera.position.set(player.x, camera.position.y, player.z);
-        }
-        
-        renderMinimap();
+        drawMinimap();
     }
-    
-    if (renderer && scene && camera) {
-        renderer.render(scene, camera);
-    }
+    renderer.render(scene, camera);
 }
 
-// Admin cheat command system processor
-window.triggerAdminCommand = function(cmd) {
-    audio.playTung();
-    unlockAchievement('cheat');
+document.getElementById('btn-play').addEventListener('click', () => {
+    audio.init(); audio.startBg();
+    game.level = 1; game.timeElapsed = 0; game.hasLaserGun = false; game.isThirdPerson = false;
+    document.getElementById('hud-time').textContent = '0.0s';
     
-    if (cmd === 'tp_forward') {
-        const hX = -Math.sin(player.yaw) * 3.5, hZ = -Math.cos(player.yaw) * 3.5;
-        if (checkCellWalkable(player.x + hX, player.z + hZ)) { player.x += hX; player.z += hZ; }
-        showNotif("🧙 ADMIN CHEAT: Teleported forward!");
-    }
-    else if (cmd === 'tp_capture') {
-        const target = tralelas.find(t => !t.caught);
-        if (target) {
-            player.x = target.x - 1; player.z = target.z;
-            catchCreature(target);
-            showNotif("🧙 ADMIN CHEAT: Captured closest target!");
-        }
-    }
-    else if (cmd === 'nuke_all') {
-        tralelas.forEach(t => { if(!t.caught) catchCreature(t); });
-        showNotif("🧙 ADMIN CHEAT: Field Tactical Nuke triggered!");
-    }
-    else if (cmd === 'skip_level') {
-        levelComplete();
-        document.getElementById('admin-modal').classList.add('hidden');
-        showNotif("🧙 ADMIN CHEAT: Bypassed level difficulty tier!");
-    }
-    else if (cmd === 'toggle_laser') {
-        game.hasLaserGun = !game.hasLaserGun;
-        buildFPRig();
-        document.getElementById('btn-admin-laser').textContent = game.hasLaserGun ? "Remove Laser" : "Equip Laser";
-        showNotif(game.hasLaserGun ? "🧙 CHEAT: Laser Blaster Activated!" : "🧙 CHEAT: Laser Removed");
-    }
-    else if (cmd === 'toggle_speed') {
-        keys['inf_speed'] = !keys['inf_speed'];
-        document.getElementById('btn-admin-speed').textContent = keys['inf_speed'] ? "Deactivate Speed" : "Activate Speed";
-        showNotif(keys['inf_speed'] ? "🧙 CHEAT: Infinite Speed Engaged!" : "🧙 CHEAT: Speed Restored");
-    }
-    else if (cmd === 'trigger_angry') {
-        tralelas.forEach(t => { t.chaseGraceTime = 0; });
-        showNotif("🧙 ADMIN ALERT: All targets provoked to hyper-aggression!");
-    }
-    else if (cmd === 'spawn_trap') {
-        deployFloorTrapMesh(player.x - Math.sin(player.yaw)*2, player.z - Math.cos(player.yaw)*2);
-        showNotif("🧙 ADMIN CHEAT: Synthetic floor trap placed ahead!");
-    }
-};
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
 
-// UI Initialization Hookups
-document.addEventListener('DOMContentLoaded', () => {
-    initThree();
-    
-    document.getElementById('btn-play').addEventListener('click', () => {
-        audio.init();
-        audio.startBg();
-        
-        document.getElementById('menu-overlay').style.display = 'none';
-        document.getElementById('hud').style.display = 'flex';
-        document.getElementById('minimap-wrap').style.display = 'block';
-        
-        game.startTime = Date.now();
-        game.isPlaying = true;
-        game.level = 1;
-        game.hasLaserGun = false;
-        
-        buildLevel();
-        startFreezePhase();
-    });
+    document.getElementById('hud').style.display = 'flex';
+    document.getElementById('minimap-wrap').style.display = 'block';
 
-    // Control triggers mapping listeners
-    window.addEventListener('keydown', e => {
-        const k = e.key.toLowerCase();
-        keys[k] = true;
-        
-        if (e.ctrlKey && k === 'x') { e.preventDefault(); triggerAdminCommand('tp_forward'); }
-        if (e.ctrlKey && k === 'z') { e.preventDefault(); triggerAdminCommand('tp_capture'); }
-        if (e.ctrlKey && k === 'b') { e.preventDefault(); triggerAdminCommand('spawn_trap'); }
-        if (e.ctrlKey && k === 'h') { e.preventDefault(); triggerAdminCommand('trigger_angry'); }
-        if (e.ctrlKey && k === 'i') { e.preventDefault(); triggerAdminCommand('toggle_laser'); }
-        if (e.ctrlKey && k === 'k') { e.preventDefault(); triggerAdminCommand('nuke_all'); }
-        if (e.ctrlKey && k === 'l') { e.preventDefault(); triggerAdminCommand('skip_level'); }
-        if (e.ctrlKey && k === 'g') { e.preventDefault(); triggerAdminCommand('toggle_speed'); }
-
-        if (e.key === ' ' || e.code === 'Space') {
-            e.preventDefault();
-            executePlayerAction();
-        }
-        if (k === 'c') {
-            game.isCrouching = !game.isCrouching;
-            if (game.isCrouching && isUnderVent(player.x, player.z)) {
-                unlockAchievement('vent_escape');
-            }
-        }
-    });
-    
-    window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-    window.addEventListener('mousedown', (e) => {
-        if (!game.isPlaying || game.isFrozen || useDragLook) return;
-        if (e.target.closest('#hud') || e.target.closest('#pl-prompt') || e.target.closest('#menu-overlay') || e.target.closest('#confirm-modal') || e.target.closest('#settings-modal') || e.target.closest('#admin-modal')) return;
-        executePlayerAction();
-    });
-
-    // Modals visibility interface management hookups
-    const bindModal = (btnId, modalId, closeId) => {
-        document.getElementById(btnId).addEventListener('click', () => {
-            audio.playClick();
-            document.getElementById(modalId).classList.remove('hidden');
-        });
-        document.getElementById(closeId).addEventListener('click', () => {
-            audio.playClick();
-            document.getElementById(modalId).classList.add('hidden');
-        });
-    };
-    
-    bindModal('btn-open-settings', 'settings-modal', 'btn-settings-close');
-    bindModal('btn-open-admin', 'admin-modal', 'btn-admin-close');
-
-    // Setup volume systems sliders listeners
-    const setupSlider = (sliderId, labelId, volumeProp) => {
-        const slider = document.getElementById(sliderId);
-        const label = document.getElementById(labelId);
-        slider.addEventListener('input', (e) => {
-            const v = e.target.value;
-            label.textContent = v + '%';
-            audio[volumeProp] = v / 100;
-            audio.applyVolumeScales();
-        });
-    };
-    setupSlider('slide-master', 'lbl-master-vol', 'masterVolumeValue');
-    setupSlider('slide-music', 'lbl-music-vol', 'musicVolumeValue');
-    setupSlider('slide-sfx', 'lbl-sfx-vol', 'sfxVolumeValue');
-
-    document.getElementById('slide-sensitivity').addEventListener('input', (e) => {
-        const v = e.target.value;
-        document.getElementById('lbl-sensitivity').textContent = v + '%';
-        player.look = 0.0025 * (v / 100);
-    });
-
-    const audioButtons = [['btn-mode-both', 'both'], ['btn-mode-music', 'music'], ['btn-mode-sfx', 'sfx']];
-    audioButtons.forEach(([id, mode]) => {
-        document.getElementById(id).addEventListener('click', () => {
-            audio.playClick();
-            audioButtons.forEach(([bid]) => document.getElementById(bid).classList.remove('active'));
-            document.getElementById(id).classList.add('active');
-            audio.audioMode = mode;
-            audio.applyVolumeScales();
-        });
-    });
-
-    // Optimization option slider toggle
-    const optBtn = document.getElementById('btn-opt');
-    optBtn.textContent = game.optimized ? "⚙️ Optimization: ON" : "⚙️ Optimization: OFF";
-    optBtn.addEventListener('click', () => {
-        audio.playClick();
-        game.optimized = !game.optimized;
-        localStorage.setItem('sahoor_opt', game.optimized);
-        optBtn.textContent = game.optimized ? "⚙️ Optimization: ON" : "⚙️ Optimization: OFF";
-        if (renderer) {
-            renderer.shadowMap.enabled = !game.optimized;
-            renderer.setPixelRatio(game.optimized ? 1 : Math.min(window.devicePixelRatio, 2));
-        }
-        showNotif(game.optimized ? "Performance Optimization Enabled!" : "High Quality Rendering Restored");
-    });
-
-    // Leaderboard record wiping confirmation management logic
-    const confirmModal = document.getElementById('confirm-modal');
-    document.getElementById('btn-clear-scores').addEventListener('click', () => {
-        audio.playClick();
-        confirmModal.classList.remove('hidden');
-    });
-    document.getElementById('btn-confirm-no').addEventListener('click', () => {
-        audio.playClick();
-        confirmModal.classList.add('hidden');
-    });
-    document.getElementById('btn-confirm-yes').addEventListener('click', () => {
-        audio.playClick();
-        highscores = [];
-        localStorage.removeItem('sahoor_highscores');
-        renderHighscores();
-        confirmModal.classList.add('hidden');
-        showNotif("Leaderboard historical data cleared!");
-    });
-
-    requestAnimationFrame(loop);
+    buildLevel();
+    game.isPlaying = true;
+    document.getElementById('menu-overlay').style.display = 'none';
+    startFreezePhase();
 });
+
+const btnOpt = document.getElementById('btn-opt');
+if (game.optimized) {
+    btnOpt.className = 'sub-btn active';
+    btnOpt.textContent = '⚙️ Optimization: ON';
+}
+
+btnOpt.addEventListener('click', () => {
+    audio.playClick();
+    game.optimized = !game.optimized;
+    localStorage.setItem('sahoor_opt', game.optimized);
+    btnOpt.className = game.optimized ? 'sub-btn active text-xs' : 'sub-btn text-xs';
+    btnOpt.textContent = game.optimized ? '⚙️ Optimization: ON' : '⚙️ Optimization: OFF';
+    
+    if (renderer) {
+        renderer.dispose();
+        container.innerHTML = '';
+        initThree();
+        if (game.isPlaying) {
+            buildLevel();
+        }
+    }
+});
+
+// Leaders reset modals
+document.getElementById('btn-clear-scores').addEventListener('click', (e) => {
+    e.stopPropagation();
+    audio.playClick();
+    document.getElementById('confirm-modal').classList.remove('hidden');
+});
+
+document.getElementById('btn-confirm-yes').addEventListener('click', () => {
+    audio.playClick();
+    highscores = [];
+    localStorage.removeItem('sahoor_highscores');
+    renderHighscores();
+    document.getElementById('confirm-modal').classList.add('hidden');
+    showNotif("Local leaderboard cleared successfully!");
+});
+
+document.getElementById('btn-confirm-no').addEventListener('click', () => {
+    audio.playClick();
+    document.getElementById('confirm-modal').classList.add('hidden');
+});
+
+// Settings triggers
+document.getElementById('btn-open-settings').addEventListener('click', () => {
+    audio.playClick();
+    audio.init();
+    document.getElementById('settings-modal').classList.remove('hidden');
+});
+
+document.getElementById('btn-settings-close').addEventListener('click', () => {
+    audio.playClick();
+    document.getElementById('settings-modal').classList.add('hidden');
+});
+
+// Slider updates
+document.getElementById('slide-master').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('lbl-master-vol').textContent = val + '%';
+    audio.masterVolumeValue = val / 100;
+    audio.applyVolumeScales();
+});
+
+document.getElementById('slide-music').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('lbl-music-vol').textContent = val + '%';
+    audio.musicVolumeValue = val / 100;
+    audio.applyVolumeScales();
+});
+
+document.getElementById('slide-sfx').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('lbl-sfx-vol').textContent = val + '%';
+    audio.sfxVolumeValue = val / 100;
+    audio.applyVolumeScales();
+});
+
+document.getElementById('slide-sensitivity').addEventListener('input', (e) => {
+    const val = parseInt(e.target.value);
+    document.getElementById('lbl-sensitivity').textContent = val + '%';
+    player.look = 0.0025 * (val / 100);
+});
+
+// Audio Mode selections
+function setAudioMode(mode) {
+    audio.playClick();
+    audio.audioMode = mode;
+    
+    document.getElementById('btn-mode-both').classList.remove('active');
+    document.getElementById('btn-mode-music').classList.remove('active');
+    document.getElementById('btn-mode-sfx').classList.remove('active');
+    
+    if (mode === 'both') document.getElementById('btn-mode-both').classList.add('active');
+    if (mode === 'music') document.getElementById('btn-mode-music').classList.add('active');
+    if (mode === 'sfx') document.getElementById('btn-mode-sfx').classList.add('active');
+    
+    audio.applyVolumeScales();
+}
+
+document.getElementById('btn-mode-both').addEventListener('click', () => setAudioMode('both'));
+document.getElementById('btn-mode-music').addEventListener('click', () => setAudioMode('music'));
+document.getElementById('btn-mode-sfx').addEventListener('click', () => setAudioMode('sfx'));
+
+// Start contexts
+initThree();
+animate();
 </script>
 </body>
 </html>
